@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, TimestampMixin, UUIDMixin
+
+
+class User(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "users"
+
+    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    role: Mapped[str] = mapped_column(Text, default="student", nullable=False)
+
+    profile = relationship("UserProfile", back_populates="user", uselist=False)
