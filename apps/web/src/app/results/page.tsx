@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SiteHeader } from "@/components/layout/site-header";
+import { SiteFooter } from "@/components/layout/site-footer";
+import { ProfileSummaryHero } from "@/components/layout/profile-summary-hero";
+import { RecommendationCard } from "@/components/layout/recommendation-card";
+import { ExplanationPanel } from "@/components/layout/explanation-panel";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -12,10 +17,13 @@ type Recommendation = {
   explanation: string[];
 };
 
+type FavoritesState = Record<string, boolean>;
+
 export default function ResultsPage() {
   const [results, setResults] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<FavoritesState>({});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -54,37 +62,78 @@ export default function ResultsPage() {
     return () => controller.abort();
   }, []);
 
+  const toggleFavorite = (slug: string) => {
+    setFavorites((prev) => ({
+      ...prev,
+      [slug]: !prev[slug],
+    }));
+  };
+
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-16">
-      <header className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Результаты</p>
-        <h1 className="text-3xl font-semibold text-white">Персональные рекомендации</h1>
-        <p className="text-sm text-slate-300">
-          Сформированы на основе официального вектора и сохранённых предпочтений. Каждый результат содержит
-          объяснение и конкретные шаги.
-        </p>
-      </header>
-      {loading && <p className="text-sm text-amber-300">Загружаем рекомендации...</p>}
-      {error && <p className="text-sm text-rose-400">{error}</p>}
-      <div className="grid gap-6 md:grid-cols-2">
-        {results.map((item) => (
-          <article
-            key={item.slug}
-            className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-900/60 p-6"
-          >
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-xl font-semibold text-white">{item.slug}</h2>
-              <span className="text-xs uppercase tracking-[0.4em] text-slate-400">#{item.rank}</span>
-            </div>
-            <p className="text-sm text-slate-300">Score: {item.score}</p>
-            <ul className="text-sm text-slate-200">
-              {item.explanation.map((note) => (
-                <li key={note}>• {note}</li>
-              ))}
-            </ul>
-          </article>
-        ))}
-      </div>
-    </section>
+    <div className="results-page">
+      <SiteHeader />
+
+      <main className="results-content">
+        <ProfileSummaryHero
+          archetype="Аналитик"
+          grade="10 класс"
+          interests={["Технологии", "Решение задач", "Проектирование"]}
+          strongSubjects={["Математика", "Физика", "Информатика"]}
+        />
+
+        <div className="results-header">
+          <span className="results-section-label">Результаты</span>
+          <h1 className="results-heading">Персональные рекомендации</h1>
+          <p className="results-subheading">
+            Сформированы на основе официального вектора и сохранённых предпочтений.
+            Каждый результат содержит объяснение и конкретные шаги.
+          </p>
+        </div>
+
+        {loading && (
+          <div className="loading-state">
+            Загружаем рекомендации...
+          </div>
+        )}
+
+        {error && (
+          <div className="error-state">
+            {error}
+          </div>
+        )}
+
+        {results.length === 0 && !loading && !error && (
+          <div className="empty-state">
+            Рекомендации появятся после прохождения теста.
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <div className="recommendations-grid">
+            {results.map((item) => (
+              <RecommendationCard
+                key={item.slug}
+                rank={item.rank}
+                title={item.profession}
+                slug={item.slug}
+                matchScore={item.score}
+                description={item.explanation.join(" ")}
+                isFavorited={favorites[item.slug]}
+                onFavorite={() => toggleFavorite(item.slug)}
+              />
+            ))}
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <ExplanationPanel
+            title="Почему эти профессии?"
+            description="Мы анализируем несколько факторов, чтобы дать вам объяснимые рекомендации."
+          />
+        )}
+      </main>
+
+      <SiteFooter />
+    </div>
   );
 }
