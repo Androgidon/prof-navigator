@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_db_session
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
@@ -25,7 +27,7 @@ def _now() -> datetime:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(payload: UserCreate, session=Depends(get_session)) -> TokenResponse:
+async def register(payload: UserCreate, session: AsyncSession = Depends(get_db_session)) -> TokenResponse:
     repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
     existing = await repo.find_by_email(payload.email)
@@ -49,7 +51,7 @@ async def register(payload: UserCreate, session=Depends(get_session)) -> TokenRe
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: UserLogin, session=Depends(get_session)) -> TokenResponse:
+async def login(payload: UserLogin, session: AsyncSession = Depends(get_db_session)) -> TokenResponse:
     repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
     user = await repo.find_by_email(payload.email)
@@ -73,7 +75,7 @@ async def login(payload: UserLogin, session=Depends(get_session)) -> TokenRespon
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(payload: RefreshTokenRequest, session=Depends(get_session)) -> TokenResponse:
+async def refresh_token(payload: RefreshTokenRequest, session: AsyncSession = Depends(get_db_session)) -> TokenResponse:
     token_repo = RefreshTokenRepository(session)
     decoded = AuthService.token_payload(payload.refresh_token)
     if not decoded or decoded.get("type") != "refresh":

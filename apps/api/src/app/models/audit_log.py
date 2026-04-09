@@ -11,4 +11,4 @@ class AdminAuditLog(Base, UUIDMixin, TimestampMixin):
 
     actor_id: Mapped[str] = mapped_column(Text, nullable=False)
     action: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata: Mapped[dict] = mapped_column(JSON, nullable=True)
+    extra_data: Mapped[dict] = mapped_column(JSON, nullable=True)
