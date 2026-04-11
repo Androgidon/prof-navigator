@@ -14,4 +14,9 @@ class ProfessionIndustry(Base, UUIDMixin, TimestampMixin):
     icon: Mapped[str] = mapped_column(Text, nullable=True)
     color: Mapped[str] = mapped_column(Text, nullable=True)
 
-    professions = relationship("Profession", back_populates="industry")
+    professions = relationship(
+        "Profession",
+        back_populates="industry",
+        foreign_keys="Profession.industry_id",
+        cascade="all, delete",
+    )

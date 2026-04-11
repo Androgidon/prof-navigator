@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { authFetch, AuthExpiredError } from "@/lib/api-client";
 
 type AdminUser = {
   id: string;
@@ -13,8 +14,6 @@ type AdminUser = {
   is_active: boolean;
   created_at: string | null;
 };
-
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -27,16 +26,8 @@ export default function AdminUsersPage() {
       setLoading(true);
       setError(null);
       try {
-        const token = localStorage.getItem("access_token");
-        if (!token) {
-          router.replace("/dashboard");
-          return;
-        }
-
-        const res = await fetch(`${apiBase}/admin/users`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.status === 401 || res.status === 403) {
+        const res = await authFetch("/admin/users");
+        if (res.status === 403) {
           router.replace("/dashboard");
           return;
         }
@@ -46,6 +37,9 @@ export default function AdminUsersPage() {
         const payload = await res.json();
         setUsers(payload.users ?? []);
       } catch (err) {
+        if (err instanceof AuthExpiredError) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Ошибка");
       } finally {
         setLoading(false);

@@ -37,6 +37,7 @@ dev = [
 start = "app.main:create_app"
 seed = "app.scripts.seed:main"
 migrate = "app.scripts.migrate:main"
+import-assessment-seeds = "app.scripts.import_assessment_seeds:main"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]

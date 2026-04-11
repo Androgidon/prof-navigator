@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +17,7 @@ async def get_session(session: AsyncSession = Depends(get_db_session)) -> AsyncS
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     session: AsyncSession = Depends(get_db_session),
 ) -> User:
     if not credentials:
@@ -31,6 +33,21 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
     return user
+
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_db_session),
+) -> Optional[User]:
+    if not credentials:
+        return None
+
+    payload = AuthService.token_payload(credentials.credentials)
+    user_id = payload.get("sub") if payload else None
+    if not user_id:
+        return None
+
+    return await UserRepository(session).find_by_id(str(user_id))
 
 
 async def require_admin_user(current_user: User = Depends(get_current_user)) -> User:

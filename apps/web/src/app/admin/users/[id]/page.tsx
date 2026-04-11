@@ -5,8 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { authFetch, AuthExpiredError } from "@/lib/api-client";
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const appEnv = (process.env.NEXT_PUBLIC_APP_ENV ?? process.env.NODE_ENV ?? "").toLowerCase();
+const canUseDevReset = ["local", "dev", "development"].includes(appEnv);
 
 type UserDetailPayload = {
   account: {
@@ -56,16 +58,8 @@ export default function AdminUserDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        router.replace("/dashboard");
-        return;
-      }
-
-      const res = await fetch(`${apiBase}/admin/users/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401 || res.status === 403) {
+      const res = await authFetch(`/admin/users/${userId}`);
+      if (res.status === 403) {
         router.replace("/dashboard");
         return;
       }
@@ -74,6 +68,9 @@ export default function AdminUserDetailPage() {
       }
       setData(await res.json());
     } catch (err) {
+      if (err instanceof AuthExpiredError) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Ошибка");
     } finally {
       setLoading(false);
@@ -86,24 +83,43 @@ export default function AdminUserDetailPage() {
 
   const changeStatus = async (action: "activate" | "deactivate" | "delete") => {
     const isDelete = action === "delete";
-    if (isDelete && !window.confirm("Подтвердите soft-delete пользователя")) {
+    if (isDelete && !window.confirm("Подтвердите полное удаление пользователя для dev-тестирования")) {
       return;
     }
 
-    const method = action === "delete" ? "DELETE" : "POST";
-    const path = action === "delete" ? `${apiBase}/admin/users/${userId}` : `${apiBase}/admin/users/${userId}/${action}`;
+    if (isDelete) {
+      if (!canUseDevReset) {
+        alert("Полное удаление доступно только в local/dev среде");
+        return;
+      }
+      if (!data?.account.email) {
+        alert("Не найден email пользователя для удаления");
+        return;
+      }
 
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      router.replace("/dashboard");
+      const resetRes = await authFetch("/dev/reset-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.account.email }),
+      });
+      if (resetRes.status === 403) {
+        router.replace("/dashboard");
+        return;
+      }
+      if (!resetRes.ok) {
+        alert("Не удалось выполнить полное удаление пользователя");
+        return;
+      }
+
+      alert("Пользователь полностью удалён");
+      router.push("/admin/users");
       return;
     }
 
-    const res = await fetch(path, {
-      method,
-      headers: { Authorization: `Bearer ${token}` },
+    const res = await authFetch(`/admin/users/${userId}/${action}`, {
+      method: "POST",
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 403) {
       router.replace("/dashboard");
       return;
     }
@@ -133,13 +149,31 @@ export default function AdminUserDetailPage() {
               <p><strong>ID:</strong> {data.account.id}</p>
               <p><strong>Email:</strong> {data.account.email}</p>
               <p><strong>Role:</strong> {data.account.role}</p>
-              <p><strong>Status:</strong> {data.account.is_active ? "active" : "deactivated"}</p>
+              <p><strong>Status:</strong> {data.account.is_active ? "Активен" : "Деактивирован"}</p>
               <p><strong>Created at:</strong> {data.account.created_at ? new Date(data.account.created_at).toLocaleString() : "—"}</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-                <button className="form-submit-btn mt-0" type="button" onClick={() => changeStatus("deactivate")}>Deactivate</button>
-                <button className="form-submit-btn mt-0" type="button" onClick={() => changeStatus("activate")}>Activate</button>
-                <button className="form-submit-btn mt-0" type="button" onClick={() => changeStatus("delete")}>Delete</button>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button
+                  className="mt-0 h-8 w-36 px-2 text-xs rounded-md border border-border bg-background hover:bg-accent"
+                  type="button"
+                  onClick={() => changeStatus("deactivate")}
+                >
+                  Деактивировать
+                </button>
+                <button
+                  className="mt-0 h-8 w-36 px-2 text-xs rounded-md border border-border bg-background hover:bg-accent"
+                  type="button"
+                  onClick={() => changeStatus("activate")}
+                >
+                  Активировать
+                </button>
+                <button
+                  className="mt-0 h-8 w-24 px-2 text-xs rounded-md border border-red-600 bg-red-600 text-white hover:bg-red-700"
+                  type="button"
+                  onClick={() => changeStatus("delete")}
+                >
+                  Удалить
+                </button>
               </div>
             </div>
 

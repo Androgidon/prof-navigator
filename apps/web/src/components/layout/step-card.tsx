@@ -22,9 +22,11 @@ export function StepCard({
         <span className="step-number">{number}</span>
       </div>
       <div className="step-content">
-        <h3>{title}</h3>
-        {description && <p>{description}</p>}
         {children}
+        <div className="step-text">
+          <h3>{title}</h3>
+          {description && <p>{description}</p>}
+        </div>
       </div>
     </div>
   );

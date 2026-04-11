@@ -2,20 +2,25 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { FocusedTaskLayout } from "@/components/layout/focused-task-layout";
 import { ProgressBar } from "@/components/layout/progress-bar";
+import { setAccountEmail } from "@/lib/auth-flow";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 export default function RegisterPage() {
-  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const router = useRouter();
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setStatus("idle");
+    setStatus("loading");
+    setMessage(null);
+    
     const formData = new FormData(event.currentTarget);
     const payload = {
       email: formData.get("email"),
@@ -28,11 +33,25 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      
       if (!response.ok) {
-        throw new Error("Не удалось зарегистрироваться");
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "Не удалось зарегистрироваться");
       }
+      
+      const data = await response.json();
+      
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("refresh_token", data.refresh_token);
+      setAccountEmail(String(payload.email ?? ""));
+      
       setStatus("success");
-      setMessage("Регистрация прошла успешно. Токен сохранён в localStorage.");
+      setMessage("Регистрация прошла успешно. Перенаправление...");
+      
+      // Redirect to dashboard after short delay
+      setTimeout(() => {
+        router.push("/onboarding");
+      }, 1000);
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Ошибка");
@@ -82,11 +101,15 @@ export default function RegisterPage() {
               />
             </div>
 
-            <button type="submit" className="form-submit-btn">
-              Зарегистрироваться
+            <button 
+              type="submit" 
+              className="form-submit-btn"
+              disabled={status === "loading"}
+            >
+              {status === "loading" ? "Регистрация..." : "Зарегистрироваться"}
             </button>
 
-            {status !== "idle" && (
+            {status !== "idle" && status !== "loading" && (
               <p className={`form-message ${status === "success" ? "form-message-success" : "form-message-error"}`}>
                 {message}
               </p>

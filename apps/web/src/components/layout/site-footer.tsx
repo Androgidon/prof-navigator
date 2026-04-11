@@ -22,6 +22,13 @@ const footerColumns: FooterColumn[] = [
       { label: "Политика конфиденциальности", href: "/privacy" },
     ],
   },
+  {
+    title: "Поддержка",
+    links: [
+      { label: "FAQ", href: "/faq" },
+      { label: "Помощь", href: "/help" },
+    ],
+  },
 ];
 
 export function SiteFooter() {
@@ -30,7 +37,7 @@ export function SiteFooter() {
       <div className="footer-container">
         <div className="footer-brand">
           <p className="footer-logo">CareerPath</p>
-          <p className="footer-tagline">Explainable профориентация для школ и вузов</p>
+          <p className="footer-tagline">Помогаем школьникам найти свой путь в будущее</p>
         </div>
         <div className="footer-nav">
           {footerColumns.map((column) => (

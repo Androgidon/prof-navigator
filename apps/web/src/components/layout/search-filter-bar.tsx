@@ -5,6 +5,7 @@ interface SearchFilterBarProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  showFilters?: boolean;
 }
 
 export function SearchFilterBar({
@@ -12,6 +13,7 @@ export function SearchFilterBar({
   onChange,
   placeholder = "Поиск профессий...",
   className,
+  showFilters = true,
 }: SearchFilterBarProps) {
   return (
     <div className={cn("search-filter-bar", className)}>
@@ -36,20 +38,22 @@ export function SearchFilterBar({
           className="search-input"
         />
       </div>
-      <div className="filter-buttons">
-        <button type="button" className="filter-btn">
-          Все
-        </button>
-        <button type="button" className="filter-btn">
-          Технологии
-        </button>
-        <button type="button" className="filter-btn">
-          Медицина
-        </button>
-        <button type="button" className="filter-btn">
-          Бизнес
-        </button>
-      </div>
+      {showFilters && (
+        <div className="filter-buttons">
+          <button type="button" className="filter-btn">
+            Все
+          </button>
+          <button type="button" className="filter-btn">
+            Технологии
+          </button>
+          <button type="button" className="filter-btn">
+            Медицина
+          </button>
+          <button type="button" className="filter-btn">
+            Бизнес
+          </button>
+        </div>
+      )}
     </div>
   );
 }

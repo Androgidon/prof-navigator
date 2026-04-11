@@ -7,6 +7,8 @@ interface ProfessionHeroProps {
   matchScore?: number;
   isFavorited?: boolean;
   onFavorite?: () => void;
+  backHref?: string;
+  backLabel?: string;
   className?: string;
 }
 
@@ -23,12 +25,14 @@ export function ProfessionHero({
   matchScore,
   isFavorited,
   onFavorite,
+  backHref = "/results",
+  backLabel = "Назад к результатам",
   className,
 }: ProfessionHeroProps) {
   return (
     <div className={cn("profession-hero", className)}>
-      <Link href="/results" className="back-link">
-        ← Назад к результатам
+      <Link href={backHref} className="back-link">
+        ← {backLabel}
       </Link>
 
       <div className="hero-content">

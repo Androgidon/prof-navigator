@@ -38,7 +38,7 @@ async def register(payload: UserCreate, session: AsyncSession = Depends(get_db_s
     hashed = AuthService.hash_password(payload.password)
     user = await repo.create(payload.email, hashed)
     access_token = AuthService.create_access_token(str(user.id))
-    refresh_id = user.id
+    refresh_id = uuid.uuid4()
     refresh_token_value = AuthService.create_refresh_token(str(user.id), str(refresh_id))
     await token_repo.create(
         user_id=str(user.id),
@@ -62,7 +62,7 @@ async def login(payload: UserLogin, session: AsyncSession = Depends(get_db_sessi
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = AuthService.create_access_token(str(user.id))
-    refresh_id = user.id
+    refresh_id = uuid.uuid4()
     refresh_token_value = AuthService.create_refresh_token(str(user.id), str(refresh_id))
     await token_repo.create(
         user_id=str(user.id),
