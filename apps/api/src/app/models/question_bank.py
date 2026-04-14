@@ -31,4 +31,8 @@ class QuestionBank(Base, UUIDMixin, TimestampMixin):
     order_hint: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     question_purpose: Mapped[str] = mapped_column(String, nullable=False)
+    active_in_scoring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    experiment_tag: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    experiment_mode: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    boundary_metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)

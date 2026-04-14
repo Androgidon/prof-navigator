@@ -20,6 +20,10 @@ type QuestionResponse = {
   consistency_pair_id?: string | null;
   difficulty?: string | null;
   is_required: boolean;
+  active_in_scoring: boolean;
+  experiment_tag?: string | null;
+  experiment_mode?: string | null;
+  boundary_metadata_json?: Record<string, unknown> | null;
   order_hint: number;
   status: string;
   question_purpose: string;
@@ -41,6 +45,10 @@ function mapToForm(value: QuestionResponse): QuestionFormState {
     consistency_pair_id: value.consistency_pair_id ?? "",
     difficulty: value.difficulty ?? "",
     is_required: value.is_required,
+    active_in_scoring: value.active_in_scoring,
+    experiment_tag: value.experiment_tag ?? "",
+    experiment_mode: value.experiment_mode ?? "",
+    boundary_metadata_json: value.boundary_metadata_json ?? null,
     order_hint: value.order_hint,
     status: value.status,
     question_purpose: value.question_purpose,
@@ -94,6 +102,10 @@ export default function QuestionEditorPage() {
             consistency_pair_id: payload.consistency_pair_id || null,
             difficulty: payload.difficulty || null,
             is_required: payload.is_required,
+            active_in_scoring: payload.active_in_scoring,
+            experiment_tag: payload.experiment_tag || null,
+            experiment_mode: payload.experiment_mode || null,
+            boundary_metadata_json: payload.boundary_metadata_json,
             order_hint: payload.order_hint,
             status: payload.status,
             question_purpose: payload.question_purpose,

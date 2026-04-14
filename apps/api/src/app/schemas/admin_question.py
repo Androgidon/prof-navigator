@@ -26,6 +26,10 @@ class QuestionListItemResponse(BaseModel):
     secondary_dimensions: list[str] = Field(default_factory=list)
     order_hint: int
     status: str
+    active_in_scoring: bool = True
+    experiment_tag: Optional[str] = None
+    experiment_mode: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class QuestionDetailResponse(QuestionListItemResponse):
@@ -35,6 +39,7 @@ class QuestionDetailResponse(QuestionListItemResponse):
     difficulty: Optional[str] = None
     is_required: bool
     question_purpose: str
+    boundary_metadata_json: Optional[dict[str, Any]] = None
     notes: Optional[str] = None
 
 
@@ -53,6 +58,10 @@ class QuestionCreateRequest(BaseModel):
     consistency_pair_id: Optional[str] = None
     difficulty: Optional[str] = None
     is_required: bool = True
+    active_in_scoring: bool = True
+    experiment_tag: Optional[str] = None
+    experiment_mode: Optional[str] = None
+    boundary_metadata_json: Optional[dict[str, Any]] = None
     notes: Optional[str] = None
     status: str = "draft"
     order_hint: Optional[int] = None
@@ -73,6 +82,11 @@ class QuestionCreateRequest(BaseModel):
         weight = self.weights_by_dimension_json.get(self.primary_dimension)
         if not isinstance(weight, (int, float)):
             raise ValueError("weights_by_dimension_json must include numeric primary_dimension weight")
+        for value in self.weights_by_dimension_json.values():
+            if not isinstance(value, (int, float)):
+                raise ValueError("weights_by_dimension_json must contain numeric values")
+        if self.boundary_metadata_json is not None and not isinstance(self.boundary_metadata_json, dict):
+            raise ValueError("boundary_metadata_json must be object when provided")
         return self
 
 
@@ -88,6 +102,10 @@ class QuestionPatchRequest(BaseModel):
     consistency_pair_id: Optional[str] = None
     difficulty: Optional[str] = None
     is_required: Optional[bool] = None
+    active_in_scoring: Optional[bool] = None
+    experiment_tag: Optional[str] = None
+    experiment_mode: Optional[str] = None
+    boundary_metadata_json: Optional[dict[str, Any]] = None
     order_hint: Optional[int] = None
     status: Optional[str] = None
     question_purpose: Optional[str] = None
@@ -134,3 +152,18 @@ class PreviewSignalRequest(BaseModel):
 class PreviewSignalResponse(BaseModel):
     signals: dict[str, dict[str, float]] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+
+
+class QuestionSummaryResponse(BaseModel):
+    total_questions: int
+    active_baseline: int
+    active_experimental: int
+    inactive_or_draft: int
+
+
+class QuestionListPageResponse(BaseModel):
+    items: list[QuestionListItemResponse] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

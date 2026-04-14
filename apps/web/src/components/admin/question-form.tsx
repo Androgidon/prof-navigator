@@ -25,6 +25,10 @@ export type QuestionFormState = {
   consistency_pair_id: string;
   difficulty: string;
   is_required: boolean;
+  active_in_scoring: boolean;
+  experiment_tag: string;
+  experiment_mode: string;
+  boundary_metadata_json: Record<string, unknown> | null;
   order_hint: number;
   status: string;
   question_purpose: string;
@@ -53,6 +57,15 @@ export function QuestionForm({ mode, initialValue, onSave, onCloneRequired }: Qu
     [form.question_type]
   );
 
+  const hasPrimaryWeight = typeof form.weights_by_dimension_json[form.primary_dimension] === "number";
+  const hasInvalidQuestionWeight = Object.values(form.weights_by_dimension_json).some((value) => typeof value !== "number");
+  const hasInvalidOptionWeight = form.options_json.some((option) => {
+    const optionWeights = option.weights_by_dimension;
+    if (!optionWeights) return false;
+    return Object.values(optionWeights).some((value) => typeof value !== "number");
+  });
+  const boundaryMetadataIsValid = form.boundary_metadata_json === null || typeof form.boundary_metadata_json === "object";
+
   const invalid =
     !form.assessment_version_slug.trim() ||
     !form.question_id.trim() ||
@@ -60,7 +73,10 @@ export function QuestionForm({ mode, initialValue, onSave, onCloneRequired }: Qu
     !form.text.trim() ||
     !form.primary_dimension.trim() ||
     !form.question_purpose.trim() ||
-    !form.weights_by_dimension_json[form.primary_dimension] ||
+    !hasPrimaryWeight ||
+    hasInvalidQuestionWeight ||
+    hasInvalidOptionWeight ||
+    !boundaryMetadataIsValid ||
     (requiresOptions && form.options_json.length === 0);
 
   const handleTypeChange = (nextType: string) => {
@@ -198,6 +214,50 @@ export function QuestionForm({ mode, initialValue, onSave, onCloneRequired }: Qu
         <label className="admin-field">
           <span>Order Hint</span>
           <input type="number" className="admin-input" value={form.order_hint} onChange={(e) => setForm((prev) => ({ ...prev, order_hint: Number(e.target.value) }))} />
+        </label>
+      </div>
+
+      <div className="admin-grid-two">
+        <label className="admin-field">
+          <span>Experiment mode</span>
+          <input className="admin-input" value={form.experiment_mode} onChange={(e) => setForm((prev) => ({ ...prev, experiment_mode: e.target.value }))} placeholder="baseline / baseline+expansion_p0_v1" />
+        </label>
+        <label className="admin-field">
+          <span>Experiment tag</span>
+          <input className="admin-input" value={form.experiment_tag} onChange={(e) => setForm((prev) => ({ ...prev, experiment_tag: e.target.value }))} placeholder="expansion_p0_v1" />
+        </label>
+      </div>
+
+      <div className="admin-grid-two">
+        <label className="admin-field">
+          <span>Active in scoring</span>
+          <select className="admin-input" value={form.active_in_scoring ? "yes" : "no"} onChange={(e) => setForm((prev) => ({ ...prev, active_in_scoring: e.target.value === "yes" }))}>
+            <option value="yes">yes</option>
+            <option value="no">no</option>
+          </select>
+        </label>
+        <label className="admin-field">
+          <span>Boundary metadata (optional JSON)</span>
+          <textarea
+            className="admin-textarea"
+            value={form.boundary_metadata_json ? JSON.stringify(form.boundary_metadata_json) : ""}
+            onChange={(e) => {
+              const next = e.target.value.trim();
+              if (!next) {
+                setError(null);
+                setForm((prev) => ({ ...prev, boundary_metadata_json: null }));
+                return;
+              }
+              try {
+                const parsed = JSON.parse(next) as Record<string, unknown>;
+                setError(null);
+                setForm((prev) => ({ ...prev, boundary_metadata_json: parsed }));
+              } catch {
+                setError("Boundary metadata должен быть корректным JSON-объектом");
+              }
+            }}
+            rows={2}
+          />
         </label>
       </div>
 

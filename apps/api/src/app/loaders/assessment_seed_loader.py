@@ -134,6 +134,13 @@ class AssessmentSeedLoader:
             for dim in secondary_dimensions:
                 self._ensure_dimension(dim, f"question secondary dimension {key}")
             self._ensure_dimension(row["primary_dimension"], f"question primary dimension {key}")
+            boundary_metadata_raw = row.get("boundary_metadata_json", "")
+            boundary_metadata_json = None
+            if boundary_metadata_raw and str(boundary_metadata_raw).strip():
+                boundary_metadata_json = self._parse_json(boundary_metadata_raw, f"question boundary metadata {key}")
+                if not isinstance(boundary_metadata_json, dict):
+                    raise SeedValidationError(f"boundary_metadata_json must be object for question {key}")
+
             rows.append(
                 {
                     "question_id": row["question_id"],
@@ -149,6 +156,10 @@ class AssessmentSeedLoader:
                     "consistency_pair_id": row["consistency_pair_id"] or None,
                     "difficulty": row["difficulty"] or None,
                     "is_required": self._parse_bool(row["is_required"]),
+                    "active_in_scoring": self._parse_bool(row.get("active_in_scoring", "true")),
+                    "experiment_tag": row.get("experiment_tag") or None,
+                    "experiment_mode": row.get("experiment_mode") or None,
+                    "boundary_metadata_json": boundary_metadata_json,
                     "order_hint": int(row["order_hint"]),
                     "status": row["status"],
                     "question_purpose": row["question_purpose"],
