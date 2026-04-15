@@ -6,6 +6,28 @@ from app.main import create_app
 client = TestClient(create_app())
 
 
+def test_deep_start_never_falls_back_to_express_question_set():
+    start = client.post("/api/v1/assessments/start", json={"assessment_slug": "deep_v1"})
+
+    if start.status_code == 503:
+        assert "express fallback is forbidden" in start.json()["detail"]
+        return
+
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    questions = client.get(f"/api/v1/assessments/{session_id}/questions")
+    assert questions.status_code == 200
+    payload = questions.json()
+    assert payload["total_questions"] >= 40
+
+    ids = [item["question_id"] for item in payload["questions"]]
+    assert all(not question_id.startswith("exp_") for question_id in ids)
+
+    types = {item["question_type"] for item in payload["questions"]}
+    assert {"likert", "forced_choice", "single_select", "situational", "multi_select", "mini_task"}.issubset(types)
+
+
 def test_express_pipeline_complete_and_reuse_result():
     start = client.post("/api/v1/assessments/start", json={"assessment_slug": "express_v1"})
     assert start.status_code == 200

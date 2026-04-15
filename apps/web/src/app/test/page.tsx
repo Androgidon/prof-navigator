@@ -38,11 +38,31 @@ const blockLabels: Record<string, string> = {
   work_style_and_environment: "Стиль работы",
   behavioral_situations: "Ситуации и поведение",
   mini_cognitive_tasks: "Мини-задачи",
+  deep_interests: "Интересы и предпочтения",
+  hobbies_and_real_activities: "Реальные активности",
+  consistency_crosscheck: "Уточняющие вопросы",
+};
+
+type AssessmentMode = "express_v1" | "deep_v1";
+
+const assessmentMeta: Record<AssessmentMode, { title: string; description: string; cta: string }> = {
+  express_v1: {
+    title: "Экспресс-тест: 24 вопроса, чтобы понять себя",
+    description:
+      "Быстрый тест из 24 вопросов: получите первичный профиль и рекомендации по профессиям.",
+    cta: "Начать экспресс-тест",
+  },
+  deep_v1: {
+    title: "Углубленный тест: 72 вопроса для точного профиля",
+    description:
+      "Подробный тест из 72 вопросов: получите более точный профиль и развернутые рекомендации.",
+    cta: "Начать углубленный тест",
+  },
 };
 
 export default function TestPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<AssessmentMode | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAllowed, setIsAllowed] = useState(false);
@@ -62,14 +82,14 @@ export default function TestPage() {
     setIsAllowed(true);
   }, [router]);
 
-  const startTest = useCallback(async () => {
-    setLoading(true);
+  const startTest = useCallback(async (mode: AssessmentMode) => {
+    setLoadingMode(mode);
     setError(null);
     try {
       const res = await authFetch("/assessments/start", {
         method: "POST",
         headers: getAuthHeaders(true),
-        body: JSON.stringify({ assessment_slug: "express_v1" }),
+        body: JSON.stringify({ assessment_slug: mode }),
       });
       if (!res.ok) {
         const body = await res.text();
@@ -93,7 +113,7 @@ export default function TestPage() {
       }
       setError(err instanceof Error ? err.message : "Ошибка при создании сессии");
     } finally {
-      setLoading(false);
+      setLoadingMode(null);
     }
   }, []);
 
@@ -267,20 +287,36 @@ export default function TestPage() {
           <>
             <div className="test-start-surface">
               <p className="test-start-kicker">Тест CareerPath</p>
-              <h1>24 вопроса, чтобы понять себя</h1>
+              <h1>Выберите формат теста</h1>
               <p>
-                Это экспресс-тест из 24 вопросов: быстро пройдите оценку и
-                получите персональные рекомендации.
+                На этой странице доступны оба формата: экспресс-тест и
+                углубленный тест.
               </p>
 
-              <div className="test-start-header">
-                <button
-                  onClick={startTest}
-                  className="test-start-btn"
-                  disabled={loading}
-                >
-                  {loading ? "Загрузка..." : "Начать тест"}
-                </button>
+              <div className="test-start-header" style={{ display: "grid", gap: 12 }}>
+                <div className="test-mode-card" style={{ border: "1px solid #d8dce8", borderRadius: 12, padding: 16 }}>
+                  <h3 style={{ margin: 0, marginBottom: 8 }}>{assessmentMeta.express_v1.title}</h3>
+                  <p style={{ margin: 0, marginBottom: 12 }}>{assessmentMeta.express_v1.description}</p>
+                  <button
+                    onClick={() => void startTest("express_v1")}
+                    className="test-start-btn"
+                    disabled={loadingMode !== null}
+                  >
+                    {loadingMode === "express_v1" ? "Загрузка..." : assessmentMeta.express_v1.cta}
+                  </button>
+                </div>
+
+                <div className="test-mode-card" style={{ border: "1px solid #d8dce8", borderRadius: 12, padding: 16 }}>
+                  <h3 style={{ margin: 0, marginBottom: 8 }}>{assessmentMeta.deep_v1.title}</h3>
+                  <p style={{ margin: 0, marginBottom: 12 }}>{assessmentMeta.deep_v1.description}</p>
+                  <button
+                    onClick={() => void startTest("deep_v1")}
+                    className="test-start-btn"
+                    disabled={loadingMode !== null}
+                  >
+                    {loadingMode === "deep_v1" ? "Загрузка..." : assessmentMeta.deep_v1.cta}
+                  </button>
+                </div>
               </div>
 
               {error && (

@@ -17,6 +17,8 @@ DIMENSIONS = [
     "practical",
 ]
 
+from app.domains.assessment_scoring.full_scoring_blueprint_v1 import FullScoringBlueprintV1
+
 BUCKET_ALIASES = {
     "interests_and_task_preferences": "self_report",
     "deep_interests": "self_report",
@@ -36,6 +38,34 @@ DEFAULT_BUCKET_WEIGHTS = {
     "tasks_calibration": 0.2,
 }
 
+DEEP_V1_RUNTIME_BUCKET_WEIGHTS = {
+    "self_report": 0.24,
+    "situational": 0.30,
+    "subjects_hobbies": 0.24,
+    "tasks_calibration": 0.22,
+}
+
+DEEP_V1_RUNTIME_BLOCK_WEIGHTS = {
+    "interests_and_task_preferences": 0.22,
+    "subjects_profile": 0.09,
+    "subject_profile": 0.09,
+    "hobbies_and_activities": 0.09,
+    "hobbies_and_real_activities": 0.09,
+    "work_style_and_environment": 0.10,
+    "behavioral_situations": 0.30,
+    "mini_cognitive_tasks": 0.20,
+    "consistency_crosscheck": 0.18,
+}
+
+DEEP_V1_QUESTION_TYPE_ALIASES = {
+    "likert": "likert_5",
+    "forced_choice": "single_select_4",
+    "single_select": "single_select_4",
+    "situational": "situational_single",
+    "mini_task": "mini_task",
+    "multi_select": "multi_select_2",
+}
+
 
 class ProfileScoringService:
     def compute(
@@ -44,6 +74,10 @@ class ProfileScoringService:
         answers_json: dict[str, Any],
         scoring_config_json: dict[str, Any],
     ) -> dict[str, Any]:
+        assessment_slug = str(scoring_config_json.get("assessment_slug") or "")
+        if assessment_slug == "deep_v1" and len(questions) >= 40:
+            return self._compute_full_v1(questions=questions, answers_json=answers_json)
+
         question_map = {q.question_id: q for q in questions}
 
         # Collect (value, relevance_weight) pairs per bucket per dimension
@@ -239,6 +273,100 @@ class ProfileScoringService:
                 relevance = float(q_weights.get(dim, 0.3)) * 0.25
             out[dim] = (score, relevance)
         return out
+
+    def _compute_full_v1(self, questions: list, answers_json: dict[str, Any]) -> dict[str, Any]:
+        blueprint = FullScoringBlueprintV1()
+        normalized_questions = [self._normalize_deep_v1_question_payload(question) for question in questions]
+        signals = blueprint.extract_signals(normalized_questions, answers_json)
+        dimension_scores = blueprint.compute_dimension_scores(
+            signals,
+            block_weight_overrides={**DEEP_V1_RUNTIME_BLOCK_WEIGHTS, "M7": 0.14, "M8": 0.14},
+            adaptive_blend_override=0.24,
+            adaptive_delta_cap_override=16.0,
+        )
+
+        profile_scores = {
+            dim: int(round(float(data.get("score", 50.0))))
+            for dim, data in dimension_scores.items()
+        }
+        boundary_scores = blueprint.compute_boundary_scores(
+            dimension_scores,
+            answers_json,
+            boundary_weight_overrides={
+                "helping_vs_marketing": {"helping": 1.15, "verbal": 1.0, "social": 0.65, "creative": 1.2},
+                "engineering_vs_science": {
+                    "engineering": {"practical": 0.52, "technical": 0.30, "detail": 0.18},
+                    "science": {"exploratory": 0.40, "analytical": 0.38, "quantitative": 0.22},
+                },
+            },
+        )
+        validation_hooks = blueprint.validation_hooks(dimension_scores, boundary_scores)
+        validation_hooks["runtime_question_types"] = self._runtime_question_type_counts(questions)
+        validation_hooks["runtime_blocks"] = self._runtime_block_counts(questions)
+        fallback_dimensions = sum(1 for item in dimension_scores.values() if item.get("used_fallback", False))
+
+        profile_summary = {
+            "top_dimensions": [k for k, _ in sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))[:3]],
+            "label": "stable",
+            "starter_dataset_limited": False,
+            "message": "Deep v1 profile computed from runtime-normalized evidence.",
+            "boundary_scores": {
+                key: {
+                    "lean": value.lean,
+                    "margin": round(value.margin, 2),
+                    "stability": value.stability,
+                }
+                for key, value in boundary_scores.items()
+            },
+        }
+
+        return {
+            "profile_scores": profile_scores,
+            "dimension_evidence": dimension_scores,
+            "fallback_dimensions": fallback_dimensions,
+            "starter_dataset_limited": False,
+            "profile_summary": profile_summary,
+            "boundary_scores": {
+                key: {
+                    "lean": value.lean,
+                    "margin": round(value.margin, 2),
+                    "stability": value.stability,
+                }
+                for key, value in boundary_scores.items()
+            },
+            "validation_hooks": validation_hooks,
+        }
+
+    @staticmethod
+    def _normalize_deep_v1_question_payload(question: Any) -> Any:
+        normalized_type = DEEP_V1_QUESTION_TYPE_ALIASES.get(
+            str(getattr(question, "question_type", "") or ""),
+            str(getattr(question, "question_type", "") or ""),
+        )
+        return type("DeepV1Question", (), {
+            "question_id": getattr(question, "question_id", None),
+            "block": getattr(question, "block", ""),
+            "question_type": normalized_type,
+            "options_json": getattr(question, "options_json", []) or [],
+        })
+
+    @staticmethod
+    def _runtime_question_type_counts(questions: list[Any]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for question in questions:
+            runtime_type = str(getattr(question, "question_type", "") or "")
+            mapped = DEEP_V1_QUESTION_TYPE_ALIASES.get(runtime_type, runtime_type)
+            key = f"{runtime_type}->{mapped}" if runtime_type != mapped else runtime_type
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    @staticmethod
+    def _runtime_block_counts(questions: list[Any]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for question in questions:
+            block = str(getattr(question, "block", "") or "unknown")
+            counts[block] = counts.get(block, 0) + 1
+        return counts
 
     @staticmethod
     def _build_profile_summary(profile_scores: dict[str, int], starter_dataset_limited: bool) -> dict[str, Any]:

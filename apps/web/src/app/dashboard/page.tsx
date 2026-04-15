@@ -10,7 +10,7 @@ import { SearchFilterBar } from "@/components/layout/search-filter-bar";
 import { ResultsHistoryList } from "@/components/layout/results-history-list";
 import { ResultDetailView } from "@/components/layout/result-detail-view";
 import { getOnboardingProfile, type OnboardingProfile } from "@/lib/auth-flow";
-import { authFetch, AuthExpiredError } from "@/lib/api-client";
+import { authFetch, AuthExpiredError, trackTelemetryEvent } from "@/lib/api-client";
 
 type TabId = "profile" | "results" | "favorites" | "settings";
 
@@ -31,18 +31,76 @@ type ResultHistoryItem = {
   is_latest: boolean;
 };
 
-type ResultDetail = {
+type ResultDetail = Record<string, unknown> & {
   result_id: string;
   assessment_slug: string;
-  completed_at: string | null;
-  profile_summary: Record<string, unknown>;
-  top_strengths: Array<{ title?: string; description?: string; score?: number }>;
-  work_style: Record<string, unknown>;
-  recommendations: Recommendation[];
-  next_steps: Record<string, unknown>;
-  confidence: Record<string, unknown>;
-  dimension_evidence: Record<string, unknown>;
+  payload_version?: "express_result_v1" | "full_result_v1";
+  recommendations?: Recommendation[];
+  top_professions?: Array<{
+    title: string;
+    profession_slug: string;
+    relevance_score: number;
+    rank: number;
+    why_fit: string;
+  }>;
 };
+
+function recommendationFromResult(payload: ResultDetail | null): Recommendation[] {
+  if (!payload) return [];
+
+  if (payload.payload_version === "full_result_v1") {
+    const rows = (payload.top_professions ?? []) as Array<{
+      title: string;
+      profession_slug: string;
+      relevance_score: number;
+      rank: number;
+      why_fit: string;
+    }>;
+    return rows.map((item) => ({
+      profession: item.title,
+      slug: item.profession_slug,
+      score: Math.round(item.relevance_score),
+      rank: item.rank,
+      explanation: [item.why_fit],
+    }));
+  }
+
+  if (payload.payload_version === "express_result_v1") {
+    return [];
+  }
+
+  return ((payload.recommendations ?? []) as Recommendation[]) ?? [];
+}
+
+function isDeepResult(payload: ResultDetail | null): boolean {
+  return payload?.assessment_slug === "deep_v1";
+}
+
+async function emitCtaClicked(resultId: string, resultType: "express" | "full" | "legacy", targetAction: string, targetUrl: string | undefined, surface: "dashboard_history") {
+  trackTelemetryEvent("cta_clicked", {
+    result_id: resultId,
+    result_type: resultType,
+    target_action: targetAction,
+    target_url_present: Boolean(targetUrl),
+    surface,
+  });
+
+  try {
+    await authFetch(`/assessments/results/${resultId}/cta-clicked`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        result_id: resultId,
+        result_type: resultType,
+        target_action: targetAction,
+        target_url_present: Boolean(targetUrl),
+        surface,
+      }),
+    });
+  } catch {
+    // non-blocking best effort
+  }
+}
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>("results");
@@ -63,7 +121,6 @@ export default function DashboardPage() {
   useEffect(() => {
     setProfile(getOnboardingProfile());
   }, []);
-
 
   useEffect(() => {
     const controller = new AbortController();
@@ -104,13 +161,8 @@ export default function DashboardPage() {
               err.message.includes("signal is aborted") ||
               err.message.includes("aborted")));
 
-        if (isAbort) {
-          return;
-        }
-
-        if (err instanceof AuthExpiredError) {
-          return;
-        }
+        if (isAbort) return;
+        if (err instanceof AuthExpiredError) return;
         setError(err instanceof Error ? err.message : "Ошибка при загрузке");
       } finally {
         setLoading(false);
@@ -132,29 +184,61 @@ export default function DashboardPage() {
       setSelectedLoading(true);
       setSelectedError(null);
       try {
-        const response = await authFetch(`/assessments/results/${selectedResultId}`, {
+        let payload: ResultDetail | null = null;
+
+        const fullResponse = await authFetch(`/assessments/results/${selectedResultId}/full`, {
           signal: controller.signal,
         });
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error("Результат не найден или недоступен");
-          }
-          throw new Error("Не удалось загрузить выбранный результат");
+        if (fullResponse.ok) {
+          payload = (await fullResponse.json()) as ResultDetail;
+          trackTelemetryEvent("history_payload_type_loaded", {
+            result_id: selectedResultId,
+            payload_type: "full_result_v1",
+            surface: "dashboard_history",
+          });
         }
-        const payload = (await response.json()) as ResultDetail;
+
+        if (!isDeepResult(payload)) {
+          const expressResponse = await authFetch(`/assessments/results/${selectedResultId}/express`, {
+            signal: controller.signal,
+          });
+          if (expressResponse.ok) {
+            payload = (await expressResponse.json()) as ResultDetail;
+            trackTelemetryEvent("history_payload_type_loaded", {
+              result_id: selectedResultId,
+              payload_type: "express_result_v1",
+              surface: "dashboard_history",
+            });
+          }
+        }
+
+        if (!payload) {
+          const legacyResponse = await authFetch(`/assessments/results/${selectedResultId}`, {
+            signal: controller.signal,
+          });
+          if (!legacyResponse.ok) {
+            if (legacyResponse.status === 404) {
+              throw new Error("Результат не найден или недоступен");
+            }
+            throw new Error("Не удалось загрузить выбранный результат");
+          }
+          payload = (await legacyResponse.json()) as ResultDetail;
+          trackTelemetryEvent("history_payload_type_loaded", {
+            result_id: selectedResultId,
+            payload_type: "legacy",
+            surface: "dashboard_history",
+          });
+        }
+
         setSelectedResult(payload);
-        setRecommendations(payload.recommendations ?? []);
+        setRecommendations(recommendationFromResult(payload));
       } catch (err) {
         const isAbort =
           controller.signal.aborted ||
           (err instanceof Error &&
             (err.name === "AbortError" || err.message.includes("aborted")));
-        if (isAbort) {
-          return;
-        }
-        if (err instanceof AuthExpiredError) {
-          return;
-        }
+        if (isAbort) return;
+        if (err instanceof AuthExpiredError) return;
         setSelectedResult(null);
         setSelectedError(err instanceof Error ? err.message : "Ошибка загрузки результата");
       } finally {
@@ -243,15 +327,14 @@ export default function DashboardPage() {
 
               <div>
                 <ResultDetailView
-                  detail={
-                    selectedResult
-                      ? { ...selectedResult, recommendations: filteredRecommendations }
-                      : null
-                  }
+                  detail={selectedResult ? { ...selectedResult, recommendations: filteredRecommendations } : null}
                   loading={selectedLoading}
                   error={selectedError}
                   favorites={favorites}
                   onToggleFavorite={toggleFavorite}
+                  onCtaClicked={({ resultId, resultType, targetAction, targetUrl, surface }) => {
+                    void emitCtaClicked(resultId, resultType, targetAction, targetUrl, surface);
+                  }}
                 />
                 <SearchFilterBar value={searchQuery} onChange={setSearchQuery} />
               </div>
@@ -259,7 +342,7 @@ export default function DashboardPage() {
           </div>
         );
 
-      case "favorites":
+      case "favorites": {
         const favoritedRecs = recommendations.filter((rec) => favorites[rec.slug]);
 
         return (
@@ -288,6 +371,7 @@ export default function DashboardPage() {
             )}
           </div>
         );
+      }
 
       case "settings":
         return (

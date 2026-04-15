@@ -22,6 +22,14 @@ class ProfessionDetailResponse(ProfessionListItemResponse):
     matrix_version_slug: str
 
 
+class ProfessionListPageResponse(BaseModel):
+    items: List[ProfessionListItemResponse] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class ProfessionCreateRequest(BaseModel):
     external_id: int
     slug: str

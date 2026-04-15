@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from typing import Optional
+import csv
+import io
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,8 +18,29 @@ from app.schemas.admin_profession import (
     ProfessionCreateRequest,
     ProfessionDetailResponse,
     ProfessionListItemResponse,
+    ProfessionListPageResponse,
     ProfessionPatchRequest,
 )
+
+EXPORT_COLUMNS = [
+    "slug",
+    "title",
+    "cluster",
+    "family",
+    "status",
+    "summary",
+    "what_specialist_does",
+    "who_it_suits",
+    "school_subjects",
+    "required_skills",
+    "how_to_start",
+    "trajectory_notes",
+    "content_status",
+    "content_level",
+    "express_example_eligible",
+    "full_rank_eligible",
+    "updated_at",
+]
 
 router = APIRouter(prefix="/professions", dependencies=[Depends(require_admin_user)])
 
@@ -37,16 +62,74 @@ def _completeness(summary: str, first_steps: list[str], subjects: list[str]) -> 
     return score
 
 
-@router.get("", response_model=list[ProfessionListItemResponse])
+def _json_cell(value) -> str:
+    if isinstance(value, list):
+        return json.dumps(_safe_list(value), ensure_ascii=False)
+    return json.dumps([], ensure_ascii=False)
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if bool(value) else "false"
+
+
+def _derive_family(cluster: str) -> str:
+    return (cluster or "").strip()
+
+
+def _derive_content_status(status: str) -> str:
+    normalized = (status or "").strip().lower()
+    if normalized in {"active", "published", "ready"}:
+        return "ready"
+    if normalized in {"draft", "archived"}:
+        return normalized
+    return ""
+
+
+def _matches_extra_filters(entity, family: Optional[str], content_status: Optional[str]) -> bool:
+    if family and _derive_family(entity.cluster) != family:
+        return False
+    if content_status and _derive_content_status(entity.status) != content_status:
+        return False
+    return True
+
+
+@router.get("", response_model=ProfessionListPageResponse)
 async def list_professions(
     q: Optional[str] = None,
+    search: Optional[str] = None,
     cluster: Optional[str] = None,
     status: Optional[str] = None,
+    family: Optional[str] = None,
+    content_status: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
     session: AsyncSession = Depends(get_db_session),
 ):
+    safe_page = max(1, page)
+    safe_page_size = max(1, min(page_size, 200))
+
     repo = AdminProfessionCatalogRepository(session)
     matrix_repo = AdminProfessionMatrixRepository(session)
-    entities = await repo.list_all(query=q, cluster=cluster, status=status)
+
+    if family or content_status:
+        all_entities = await repo.list_all(query=q, search=search, cluster=cluster, status=status)
+        filtered_entities = [
+            entity
+            for entity in all_entities
+            if _matches_extra_filters(entity, family=family, content_status=content_status)
+        ]
+        total = len(filtered_entities)
+        start = (safe_page - 1) * safe_page_size
+        entities = filtered_entities[start : start + safe_page_size]
+    else:
+        entities, total = await repo.list_paginated(
+            page=safe_page,
+            page_size=safe_page_size,
+            query=q,
+            search=search,
+            cluster=cluster,
+            status=status,
+        )
 
     rows: list[ProfessionListItemResponse] = []
     for entity in entities:
@@ -67,7 +150,73 @@ async def list_professions(
                 completeness_score=_completeness(entity.summary, first_steps, subjects),
             )
         )
-    return rows
+
+    total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+    return ProfessionListPageResponse(
+        items=rows,
+        total=total,
+        page=safe_page,
+        page_size=safe_page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/export")
+async def export_professions_csv(
+    q: Optional[str] = None,
+    search: Optional[str] = None,
+    cluster: Optional[str] = None,
+    family: Optional[str] = None,
+    status: Optional[str] = None,
+    content_status: Optional[str] = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+    repo = AdminProfessionCatalogRepository(session)
+    matrix_repo = AdminProfessionMatrixRepository(session)
+    entities = await repo.list_all(query=q, search=search, cluster=cluster, status=status)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=EXPORT_COLUMNS)
+    writer.writeheader()
+
+    for entity in entities:
+        if not _matches_extra_filters(entity, family=family, content_status=content_status):
+            continue
+
+        pair = await matrix_repo.get_with_profession("matrix_v1", entity.slug)
+        matrix = pair[0] if pair else None
+        family_value = _derive_family(entity.cluster)
+        content_status_value = _derive_content_status(entity.status)
+
+        row = {
+            "slug": entity.slug,
+            "title": entity.title,
+            "cluster": entity.cluster,
+            "family": family_value,
+            "status": entity.status,
+            "summary": entity.summary,
+            "what_specialist_does": entity.summary,
+            "who_it_suits": _json_cell([]),
+            "school_subjects": _json_cell(matrix.important_subjects if matrix else []),
+            "required_skills": _json_cell([]),
+            "how_to_start": _json_cell(matrix.first_steps_template if matrix else []),
+            "trajectory_notes": _json_cell([]),
+            "content_status": content_status_value,
+            "content_level": "",
+            "express_example_eligible": _bool_text(True),
+            "full_rank_eligible": _bool_text(True),
+            "updated_at": entity.updated_at.isoformat() if entity.updated_at else "",
+        }
+        writer.writerow(row)
+
+    csv_bytes = output.getvalue().encode("utf-8")
+    output.close()
+
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="professions_export.csv"'},
+    )
 
 
 @router.get("/{slug}", response_model=ProfessionDetailResponse)

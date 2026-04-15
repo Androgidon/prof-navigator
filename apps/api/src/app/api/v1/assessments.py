@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, get_optional_user
@@ -11,7 +12,7 @@ from app.domains.assessment_results.result_policy import (
     diversification_fill_strategy,
     recommendation_target_count,
 )
-from app.domains.assessment_results.service import AssessmentResultService
+from app.domains.assessment_results.service import AssessmentResultService, PayloadAssemblyError
 from app.domains.assessment_scoring.consistency_service import ConsistencyService
 from app.domains.assessment_scoring.profession_match_service import ProfessionMatchService
 from app.domains.assessment_scoring.profile_scoring_service import ProfileScoringService
@@ -20,6 +21,7 @@ from app.domains.assessment_sessions.service import AssessmentSessionService
 from app.domains.profession_catalog.repository import ProfessionCatalogRepository
 from app.domains.profession_matrix.repository import ProfessionMatrixRepository
 from app.domains.question_bank.repository import QuestionBankRepository
+from app.domains.question_bank.selection_service import DeepQuestionSetNotReadyError
 from app.schemas.assessment_engine import (
     CompleteAssessmentResponse,
     StartAssessmentV2Response,
@@ -30,10 +32,43 @@ from app.schemas.assessment_history import (
     AssessmentHistoryResponse,
     AssessmentResultDetailResponse,
 )
+from app.schemas.assessment_result_models import ExpressResultResponse, FullResultResponse
 from app.schemas.test_session import StartAssessmentRequest
 from app.models.user import User
 
 router = APIRouter()
+
+
+class CtaClickedEventRequest(BaseModel):
+    result_id: str
+    result_type: str
+    target_action: str
+    target_url_present: bool
+    surface: str
+
+
+def _is_flag_enabled(flag_name: str, default: bool = True) -> bool:
+    import os
+
+    raw = os.getenv(flag_name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _emit_event(name: str, **payload) -> None:
+    # Minimal telemetry for iteration 1, non-blocking.
+    print({"event": name, **payload})
+
+
+def _flag_snapshot() -> dict[str, bool]:
+    return {
+        "results_v2_enabled": _is_flag_enabled("FEATURE_RESULTS_V2_ENABLED", True),
+        "results_v2_express_endpoint": _is_flag_enabled("FEATURE_RESULTS_V2_EXPRESS_ENDPOINT", True),
+        "results_v2_full_endpoint": _is_flag_enabled("FEATURE_RESULTS_V2_FULL_ENDPOINT", True),
+        "results_v2_dashboard_history_renderer": _is_flag_enabled("FEATURE_RESULTS_V2_DASHBOARD_HISTORY_RENDERER", True),
+        "results_v2_cta_actions": _is_flag_enabled("FEATURE_RESULTS_V2_CTA_ACTIONS", True),
+    }
 
 
 @router.post("/start", response_model=StartAssessmentV2Response)
@@ -43,13 +78,22 @@ async def start(
     current_user: Optional[User] = Depends(get_optional_user),
 ) -> StartAssessmentV2Response:
     assessment_slug = payload.assessment_slug or "express_v1"
+    experiment_mode = payload.experiment_mode or "baseline"
     session_service = AssessmentSessionService(
         catalog_repository=AssessmentCatalogRepository(db),
         question_repository=QuestionBankRepository(db),
         session_repository=AssessmentSessionRepository(db),
     )
     bound_user_id = str(current_user.id) if current_user else None
-    session, catalog = await session_service.start(assessment_slug=assessment_slug, user_id=bound_user_id)
+    try:
+        session, catalog = await session_service.start(
+            assessment_slug=assessment_slug,
+            user_id=bound_user_id,
+            experiment_mode=experiment_mode,
+        )
+    except DeepQuestionSetNotReadyError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
     if not session or not catalog:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment version not found")
     await db.commit()
@@ -147,10 +191,12 @@ async def complete_assessment(
     if not catalog:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment catalog not found")
 
+    scoring_config = dict(catalog.scoring_config_json or {})
+    scoring_config.setdefault("assessment_slug", session.assessment_slug)
     scoring = ProfileScoringService().compute(
         questions=questions,
         answers_json=dict(session.answers_json or {}),
-        scoring_config_json=dict(catalog.scoring_config_json or {}),
+        scoring_config_json=scoring_config,
     )
     matrix_version_slug = (catalog.question_mix_config_json or {}).get("matrix_version_slug", "matrix_v1")
     matrix_rows = await ProfessionMatrixRepository(db).list_by_version_slug(matrix_version_slug)
@@ -163,6 +209,7 @@ async def complete_assessment(
         matrix_rows=matrix_rows,
         profession_by_id=profession_by_id,
         target_count=recommendation_target_count(session.assessment_slug),
+        boundary_scores=scoring.get("boundary_scores"),
     )
 
     consistency_output = ConsistencyService().compute(
@@ -172,6 +219,7 @@ async def complete_assessment(
         fallback_dimensions=scoring["fallback_dimensions"],
         recommendations=recommendations,
         profile_scores=scoring["profile_scores"],
+        boundary_scores=scoring.get("boundary_scores"),
     )
 
     _, _payload = await result_service.create_result(
@@ -235,3 +283,129 @@ async def get_result(
         confidence=result_payload["confidence"],
         dimension_evidence=result_payload["dimension_evidence"],
     )
+
+
+@router.get("/results/{result_id}/express", response_model=ExpressResultResponse)
+async def get_result_express(
+    result_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: Optional[User] = Depends(get_optional_user),
+) -> ExpressResultResponse:
+    flags = _flag_snapshot()
+    if not flags["results_v2_enabled"] or not flags["results_v2_express_endpoint"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result type endpoint disabled")
+
+    service = AssessmentResultService(AssessmentResultRepository(db))
+    result_payload = await service.get_result_payload(
+        result_id,
+        user_id=str(current_user.id) if current_user else None,
+    )
+    if not result_payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found")
+
+    if result_payload.get("assessment_slug") == "deep_v1":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Express result path is disabled for deep_v1; use /full",
+        )
+
+    try:
+        express_payload, fallback_used = service.build_express_payload(result_payload)
+    except PayloadAssemblyError as exc:
+        _emit_event(
+            "payload_generation_fail",
+            result_id=result_id,
+            result_type="express",
+            reason=exc.reason,
+        )
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.reason, "message": str(exc)})
+    except Exception as exc:
+        _emit_event(
+            "payload_generation_fail",
+            result_id=result_id,
+            result_type="express",
+            reason="serializer_failure",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "serializer_failure", "message": str(exc)},
+        )
+
+    _emit_event("result_type_served", result_id=result_id, result_type="express")
+    _emit_event("payload_generation_success", result_id=result_id, result_type="express")
+    if fallback_used:
+        _emit_event("express_example_fallback_used", result_id=result_id)
+    _emit_event("cta_shown", result_id=result_id, result_type="express")
+    return ExpressResultResponse(**express_payload)
+
+
+@router.post("/results/{result_id}/cta-clicked", status_code=status.HTTP_200_OK)
+async def track_cta_clicked(
+    result_id: str,
+    payload: CtaClickedEventRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: Optional[User] = Depends(get_optional_user),
+) -> dict[str, Any]:
+    # validate ownership via existing result policy
+    service = AssessmentResultService(AssessmentResultRepository(db))
+    result_payload = await service.get_result_payload(
+        result_id,
+        user_id=str(current_user.id) if current_user else None,
+    )
+    if not result_payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found")
+
+    _emit_event(
+        "cta_clicked",
+        result_id=result_id,
+        result_type=payload.result_type,
+        target_action=payload.target_action,
+        target_url_present=payload.target_url_present,
+        surface=payload.surface,
+    )
+    return {"status": "ok"}
+
+
+@router.get("/results/{result_id}/full", response_model=FullResultResponse)
+async def get_result_full(
+    result_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: Optional[User] = Depends(get_optional_user),
+) -> FullResultResponse:
+    flags = _flag_snapshot()
+    if not flags["results_v2_enabled"] or not flags["results_v2_full_endpoint"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result type endpoint disabled")
+
+    service = AssessmentResultService(AssessmentResultRepository(db))
+    result_payload = await service.get_result_payload(
+        result_id,
+        user_id=str(current_user.id) if current_user else None,
+    )
+    if not result_payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found")
+
+    try:
+        full_payload = service.build_full_payload(result_payload)
+    except PayloadAssemblyError as exc:
+        _emit_event(
+            "payload_generation_fail",
+            result_id=result_id,
+            result_type="full",
+            reason=exc.reason,
+        )
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.reason, "message": str(exc)})
+    except Exception as exc:
+        _emit_event(
+            "payload_generation_fail",
+            result_id=result_id,
+            result_type="full",
+            reason="serializer_failure",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "serializer_failure", "message": str(exc)},
+        )
+
+    _emit_event("result_type_served", result_id=result_id, result_type="full")
+    _emit_event("payload_generation_success", result_id=result_id, result_type="full")
+    return FullResultResponse(**full_payload)

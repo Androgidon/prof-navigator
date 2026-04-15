@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class StartAssessmentRequest(BaseModel):
     assessment_slug: Optional[str] = None
     assessment_id: Optional[str] = None
+    experiment_mode: Optional[str] = None
 
 
 class SubmitResponseRequest(BaseModel):

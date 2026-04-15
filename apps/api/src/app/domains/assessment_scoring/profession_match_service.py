@@ -29,6 +29,7 @@ class ProfessionMatchService:
         matrix_rows: list,
         profession_by_id: dict,
         target_count: int,
+        boundary_scores: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         recommendations = []
         strengths = {name for name, _ in sorted(profile_scores.items(), key=lambda x: (-x[1], x[0]))[:3]}
@@ -46,6 +47,17 @@ class ProfessionMatchService:
             admissibility_penalty = 0.0 if admissibility["eligible"] else 11.0
             admissibility_bonus = 2.5 if admissibility["strong"] else 0.0
 
+            # Targeted suppression of science fallback for practical-heavy profiles
+            science_fallback_penalty = ProfessionMatchService._science_fallback_penalty(
+                profile_scores, matrix, profession.cluster, boundary_scores or {}
+            )
+            cluster_adjustment = ProfessionMatchService._cluster_calibration_adjustment(
+                profile_scores, profession.cluster
+            )
+            boundary_adjustment = self._boundary_alignment_adjustment(
+                profession.cluster, boundary_scores or {}
+            )
+
             final_score = max(
                 0.0,
                 min(
@@ -54,9 +66,12 @@ class ProfessionMatchService:
                     - penalty
                     - fallback_penalty
                     - admissibility_penalty
+                    - science_fallback_penalty
                     + bonus
                     + strong_fit_bonus
-                    + admissibility_bonus,
+                    + admissibility_bonus
+                    + cluster_adjustment
+                    + boundary_adjustment,
                 ),
             )
             recommendations.append(
@@ -77,6 +92,8 @@ class ProfessionMatchService:
 
         recommendations.sort(key=lambda item: (-item["_score"], item["slug"]))
         recommendations = self._prefer_applied_on_close_scores(recommendations)
+        recommendations = ProfessionMatchService._boundary_lane_tiebreak(recommendations, boundary_scores or {})
+        recommendations = self._diversify_top_clusters(recommendations, target_count)
 
         top = recommendations[:target_count]
         cluster_counts = Counter(item["cluster"] for item in top)
@@ -166,6 +183,150 @@ class ProfessionMatchService:
         return 0.0
 
     @staticmethod
+    def _boundary_alignment_adjustment(cluster: str, boundary_scores: dict[str, Any]) -> float:
+        if not boundary_scores:
+            return 0.0
+
+        cluster_lower = cluster.lower()
+        adjustment = 0.0
+
+        hm = boundary_scores.get("helping_vs_marketing", {})
+        if "образование" in cluster_lower and hm.get("lean") == "helping":
+            adjustment += 3.0
+        if "маркетинг" in cluster_lower and hm.get("lean") == "helping":
+            adjustment -= 3.5
+
+        es = boundary_scores.get("engineering_vs_science", {})
+        if "инженерия" in cluster_lower and es.get("lean") == "engineering":
+            adjustment += 3.5
+        if "наука" in cluster_lower and es.get("lean") == "engineering":
+            adjustment -= 5.0
+
+        fi = boundary_scores.get("finance_vs_it_analytics", {})
+        fi_stability = str(fi.get("stability", "low"))
+        fi_lean = str(fi.get("lean", ""))
+
+        if fi_lean == "finance":
+            if "финансы" in cluster_lower:
+                adjustment += 3.5 if fi_stability == "low" else 7.0
+            if "it" in cluster_lower or "цифров" in cluster_lower:
+                adjustment -= 2.0 if fi_stability == "low" else 4.5
+        elif fi_lean == "it_analytics":
+            if "it" in cluster_lower or "цифров" in cluster_lower:
+                adjustment += 3.5 if fi_stability == "low" else 7.0
+            if "финансы" in cluster_lower:
+                adjustment -= 2.0 if fi_stability == "low" else 4.5
+
+        lpps = boundary_scores.get("law_vs_public_vs_politics_vs_security", {})
+        lpps_lean = str(lpps.get("lean", ""))
+        lpps_stability = str(lpps.get("stability", "low"))
+        if lpps_stability in {"medium", "high"}:
+            if lpps_lean == "law" and "финансы" in cluster_lower:
+                adjustment += 5.0
+            if lpps_lean == "public_service" and "логистика" in cluster_lower:
+                adjustment += 5.0
+            if lpps_lean == "politics" and ("логистика" in cluster_lower or "бизнес" in cluster_lower):
+                adjustment += 3.0
+            if lpps_lean == "security" and "логистика" in cluster_lower:
+                adjustment += 4.0
+
+        return adjustment
+
+    @staticmethod
+    def _science_fallback_penalty(
+        profile_scores: dict[str, int],
+        matrix: Any,
+        cluster: str,
+        boundary_scores: dict[str, Any],
+    ) -> float:
+        cluster_lower = cluster.lower()
+        if "наука" not in cluster_lower:
+            return 0.0
+
+        practical = float(profile_scores.get("practical", 50))
+        helping = float(profile_scores.get("helping", 50))
+        exploratory = float(profile_scores.get("exploratory", 50))
+        analytical = float(profile_scores.get("analytical", 50))
+
+        if exploratory >= 72 and analytical >= 65:
+            return 0.0
+
+        critical = list(matrix.critical_dimensions or [])
+        critical_hit = len({"exploratory", "analytical", "quantitative"}.intersection(set(critical)))
+
+        penalty = 0.0
+        if practical >= 62:
+            penalty += 4.0
+        if helping >= 60:
+            penalty += 3.0
+        if exploratory < 60:
+            penalty += 3.0
+        if critical_hit <= 1:
+            penalty += 2.0
+
+        es = boundary_scores.get("engineering_vs_science", {})
+        if es.get("lean") == "engineering" and str(es.get("stability")) in {"medium", "high"}:
+            penalty += 4.0
+        return penalty
+
+    @staticmethod
+    def _cluster_calibration_adjustment(profile_scores: dict[str, int], cluster: str) -> float:
+        ordered = sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))
+        top_dims = {k for k, _ in ordered[:3]}
+        practical = float(profile_scores.get("practical", 50))
+        technical = float(profile_scores.get("technical", 50))
+        exploratory = float(profile_scores.get("exploratory", 50))
+        helping = float(profile_scores.get("helping", 50))
+        creative = float(profile_scores.get("creative", 50))
+        verbal = float(profile_scores.get("verbal", 50))
+        detail = float(profile_scores.get("detail", 50))
+        cluster_lower = cluster.lower()
+
+        adjustment = 0.0
+
+        # Practical/engineering lift (targeted)
+        if "инженерия" in cluster_lower:
+            if technical >= 66:
+                adjustment += 6.5
+            if practical >= 60:
+                adjustment += 11.0
+            if detail >= 58:
+                adjustment += 3.5
+            if "practical" in top_dims and "technical" in top_dims:
+                adjustment += 4.0
+
+        # Science fallback suppression when profile is practical/helping-heavy and not exploratory
+        if "наука" in cluster_lower:
+            if practical >= 58:
+                adjustment -= 18.0
+            if helping >= 60:
+                adjustment -= 10.0
+            if technical >= 64 and exploratory < 62:
+                adjustment -= 8.0
+            if exploratory >= 72:
+                adjustment += 2.0
+
+        # Additional suppression for practical-heavy profiles landing into abstract clusters
+        if cluster_lower in {"наука, исследования, экология", "бизнес, управление, продажи"}:
+            if practical >= 65 and exploratory < 65:
+                adjustment -= 6.0
+
+        # Helping vs marketing boundary safeguard (keep Q2 gains)
+        if "маркетинг" in cluster_lower:
+            if helping >= 65 and creative < 60:
+                adjustment -= 4.0
+            if verbal >= 68 and creative >= 62:
+                adjustment += 2.0
+
+        if "образование" in cluster_lower:
+            if helping >= 64:
+                adjustment += 4.0
+            if verbal >= 62:
+                adjustment += 2.0
+
+        return adjustment
+
+    @staticmethod
     def _admissibility(profile_scores: dict[str, int], matrix: Any, cluster: str) -> dict[str, Any]:
         top_dims = [k for k, _ in sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))[:3]]
         top_set = set(top_dims)
@@ -182,6 +343,7 @@ class ProfessionMatchService:
 
         rule_dims = CLUSTER_ADMISSIBILITY_RULES.get(cluster, [])
         rule_hits = sum(1 for dim in rule_dims if profile_scores.get(dim, 0) >= 66)
+
         rule_ok = rule_hits >= 2
 
         strong = top_overlap >= 2 and critical_ratio >= 0.67
@@ -193,6 +355,92 @@ class ProfessionMatchService:
             "strong": strong,
             "score": max(0.0, min(1.0, score)),
         }
+
+    @staticmethod
+    def _diversify_top_clusters(recommendations: list[dict[str, Any]], target_count: int) -> list[dict[str, Any]]:
+        if not recommendations:
+            return recommendations
+
+        max_dense = max(2, int(round(target_count * 0.30)))
+        counts: Counter[str] = Counter()
+        kept: list[dict[str, Any]] = []
+        overflow: list[dict[str, Any]] = []
+
+        for item in recommendations:
+            cluster = str(item.get("cluster", ""))
+            if counts[cluster] < max_dense:
+                kept.append(item)
+                counts[cluster] += 1
+            else:
+                overflow.append(item)
+
+        # express de-narrowing: bring one close-score neighboring cluster into top-3/top-5 window
+        if target_count <= 10 and len(kept) >= 3:
+            top_clusters = {str(x.get("cluster", "")) for x in kept[:3]}
+            base_score = float(kept[2].get("_score", 0.0))
+            insertion_done = False
+            for cand in overflow:
+                cand_cluster = str(cand.get("cluster", ""))
+                cand_score = float(cand.get("_score", 0.0))
+                if cand_cluster not in top_clusters and abs(base_score - cand_score) <= 3.5:
+                    kept.insert(2, cand)
+                    overflow.remove(cand)
+                    insertion_done = True
+                    break
+
+            # second neighbor if top-3 still mono-cluster and close score exists
+            if not insertion_done and len(top_clusters) < 2:
+                for cand in overflow:
+                    cand_cluster = str(cand.get("cluster", ""))
+                    cand_score = float(cand.get("_score", 0.0))
+                    if cand_cluster not in top_clusters and abs(base_score - cand_score) <= 5.0:
+                        kept.insert(2, cand)
+                        overflow.remove(cand)
+                        break
+
+        return kept + overflow
+
+    @staticmethod
+    def _boundary_lane_tiebreak(recommendations: list[dict[str, Any]], boundary_scores: dict[str, Any]) -> list[dict[str, Any]]:
+        if not recommendations or not boundary_scores:
+            return recommendations
+
+        fi = boundary_scores.get("finance_vs_it_analytics", {})
+        fi_lean = str(fi.get("lean", ""))
+        fi_stability = str(fi.get("stability", "low"))
+
+        lpps = boundary_scores.get("law_vs_public_vs_politics_vs_security", {})
+        lpps_lean = str(lpps.get("lean", ""))
+        lpps_stability = str(lpps.get("stability", "low"))
+
+        boosted: list[dict[str, Any]] = []
+        for item in recommendations:
+            score = float(item.get("_score", 0.0))
+            cluster_lower = str(item.get("cluster", "")).lower()
+
+            if fi_stability in {"medium", "high"}:
+                if fi_lean == "finance":
+                    if "финансы" in cluster_lower:
+                        score += 2.4
+                    if "it" in cluster_lower or "цифров" in cluster_lower:
+                        score -= 1.6
+                if fi_lean == "it_analytics":
+                    if "it" in cluster_lower or "цифров" in cluster_lower:
+                        score += 2.4
+                    if "финансы" in cluster_lower:
+                        score -= 1.6
+
+            if lpps_stability in {"medium", "high"}:
+                if lpps_lean == "law" and "финансы" in cluster_lower:
+                    score += 1.9
+                if lpps_lean in {"public_service", "politics", "security"} and "логистика" in cluster_lower:
+                    score += 2.1
+
+            boosted.append({**item, "_score": score})
+
+        boosted.sort(key=lambda item: (-item["_score"], item["slug"]))
+        return boosted
+
 
     @staticmethod
     def _prefer_applied_on_close_scores(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:

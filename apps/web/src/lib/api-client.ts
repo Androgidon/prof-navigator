@@ -63,6 +63,15 @@ type AuthFetchOptions = {
   redirectOnAuthError?: boolean;
 };
 
+export function trackTelemetryEvent(name: string, payload: Record<string, unknown> = {}): void {
+  if (typeof window === "undefined") return;
+  try {
+    console.info("telemetry", { event: name, ...payload });
+  } catch {
+    // non-blocking best effort
+  }
+}
+
 export async function authFetch(path: string, init?: RequestInit, options?: AuthFetchOptions): Promise<Response> {
   const redirectOnAuthError = options?.redirectOnAuthError ?? true;
 
