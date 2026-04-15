@@ -7,6 +7,10 @@ from app.api.v1 import router as api_router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="CareerPath API", version="0.1.0")
+
+    @app.get("/")
+    async def root_health() -> dict[str, str]:
+        return {"status": "ok", "service": "careerpath-api"}
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:3000", "http://localhost:3001"],
