@@ -25,7 +25,8 @@ def _fallback_who_suits(cluster: str) -> list[str]:
     return [f"Тем, кому интересна сфера «{cluster}» и прикладные задачи в этом направлении."]
 
 
-@router.get("/", response_model=list[ProfessionListItemResponse])
+@router.get("", response_model=list[ProfessionListItemResponse])
+@router.get("/", response_model=list[ProfessionListItemResponse], include_in_schema=False)
 async def list_professions(session=Depends(get_session)) -> list[ProfessionListItemResponse]:
     repo = ProfessionRepository(session)
     professions = await repo.list_active()
