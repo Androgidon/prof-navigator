@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import get_session
@@ -5,6 +7,7 @@ from app.repositories.profession_repository import ProfessionRepository
 from app.schemas.profession import ProfessionListItemResponse, ProfessionResponse, RelatedProfessionResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _safe_list(raw) -> list[str]:
@@ -29,17 +32,21 @@ def _fallback_who_suits(cluster: str) -> list[str]:
 @router.get("/", response_model=list[ProfessionListItemResponse], include_in_schema=False)
 async def list_professions(session=Depends(get_session)) -> list[ProfessionListItemResponse]:
     repo = ProfessionRepository(session)
-    professions = await repo.list_active()
-    return [
-        ProfessionListItemResponse(
-            slug=profession.slug,
-            title=profession.title,
-            cluster=profession.cluster,
-            summary=profession.summary,
-            status=profession.status,
-        )
-        for profession in professions
-    ]
+    try:
+        professions = await repo.list_active()
+        return [
+            ProfessionListItemResponse(
+                slug=profession.slug,
+                title=profession.title,
+                cluster=profession.cluster,
+                summary=profession.summary,
+                status=profession.status,
+            )
+            for profession in professions
+        ]
+    except Exception:
+        logger.exception("Failed to load professions")
+        raise
 
 
 @router.get("/{slug}", response_model=ProfessionResponse)
