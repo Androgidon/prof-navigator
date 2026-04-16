@@ -42,7 +42,7 @@ export default function ProfessionsPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${apiUrl}/professions`, {
+        const response = await fetch(`${apiUrl}/professions/`, {
           signal: controller.signal,
         });
         if (!response.ok) {

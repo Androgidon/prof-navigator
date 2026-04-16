@@ -99,7 +99,7 @@ export default function TestPage() {
       const sid = payload.session_id;
       setSessionId(sid);
 
-      const qRes = await fetch(`${apiUrl}/assessments/${sid}/questions`);
+      const qRes = await fetch(`${apiUrl}/assessments/${sid}/questions/`);
       if (!qRes.ok) {
         throw new Error("Не удалось загрузить вопросы");
       }
