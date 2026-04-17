@@ -1,21 +1,32 @@
-import os
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1 import router as api_router
+from app.core.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(title="CareerPath API", version="0.1.0")
+
+    @app.middleware("http")
+    async def log_unhandled_exceptions(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled API error", extra={"path": request.url.path, "method": request.method})
+            raise
 
     @app.get("/")
     async def root_health() -> dict[str, str]:
         return {"status": "ok", "service": "careerpath-api"}
 
-    raw_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000,http://localhost:3001")
-    allow_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    allow_origins = [origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()]
 
     app.add_middleware(
         CORSMiddleware,
