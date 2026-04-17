@@ -33,17 +33,33 @@ def _fallback_who_suits(cluster: str) -> list[str]:
 async def list_professions(session=Depends(get_session)) -> list[ProfessionListItemResponse]:
     repo = ProfessionRepository(session)
     try:
+        logger.info("GET /professions started")
         professions = await repo.list_active()
-        return [
-            ProfessionListItemResponse(
-                slug=profession.slug,
-                title=profession.title,
-                cluster=profession.cluster,
-                summary=profession.summary,
-                status=profession.status,
-            )
-            for profession in professions
-        ]
+        logger.info("GET /professions fetched records", extra={"records_count": len(professions)})
+
+        response_items: list[ProfessionListItemResponse] = []
+        for profession in professions:
+            try:
+                response_items.append(
+                    ProfessionListItemResponse(
+                        slug=(profession.slug or "").strip(),
+                        title=(profession.title or "").strip(),
+                        cluster=(profession.cluster or "").strip(),
+                        summary=(profession.summary or "").strip(),
+                        status=(profession.status or "").strip() or "active",
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Skipping invalid profession row during response serialization",
+                    extra={
+                        "profession_id": str(getattr(profession, "id", "")),
+                        "profession_slug": str(getattr(profession, "slug", "")),
+                    },
+                )
+
+        logger.info("GET /professions completed", extra={"response_count": len(response_items)})
+        return response_items
     except Exception:
         logger.exception("Failed to load professions")
         raise

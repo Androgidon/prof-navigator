@@ -1,3 +1,4 @@
+import logging
 from typing import Iterable, Optional
 
 from sqlalchemy import select
@@ -7,6 +8,9 @@ from sqlalchemy.orm import selectinload
 from app.models.profession import Profession
 from app.models.profession_catalog import ProfessionCatalog
 from app.models.profession_matrix import ProfessionMatrix
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProfessionRepository:
@@ -30,12 +34,15 @@ class ProfessionRepository:
         return result.scalar_one_or_none()
 
     async def list_active(self) -> list[ProfessionCatalog]:
+        logger.info("ProfessionRepository.list_active query started")
         result = await self._session.execute(
             select(ProfessionCatalog)
             .where(ProfessionCatalog.status == "active")
             .order_by(ProfessionCatalog.title.asc())
         )
-        return list(result.scalars().all())
+        rows = list(result.scalars().all())
+        logger.info("ProfessionRepository.list_active query completed", extra={"rows_count": len(rows)})
+        return rows
 
     async def get_active_by_slug(self, slug: str) -> Optional[ProfessionCatalog]:
         result = await self._session.execute(
