@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     rate_limit_login_window_seconds: int = Field(default=900, alias="RATE_LIMIT_WINDOW_SECONDS")
     rate_limit_login_max_attempts: int = Field(default=5, alias="RATE_LIMIT_MAX_ATTEMPTS")
     cors_allow_origins: str = Field(default="http://localhost:3000,http://localhost:3001", alias="CORS_ALLOW_ORIGINS")
+    professions_diag_ping: bool = Field(default=False, alias="PROFESSIONS_DIAG_PING")
 
 
 @lru_cache()

@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+    logger.info("create_app: start")
     settings = get_settings()
     app = FastAPI(title="CareerPath API", version="0.1.0")
 
@@ -35,10 +36,15 @@ def create_app() -> FastAPI:
             logger.exception("Unhandled API error", extra={"path": request.url.path, "method": request.method})
             raise
 
+    @app.exception_handler(ResponseValidationError)
+    async def response_validation_exception_handler(request: Request, exc: ResponseValidationError) -> JSONResponse:
+        logger.exception("Response validation error", extra={"path": request.url.path, "method": request.method})
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Global exception handler caught error", extra={"path": request.url.path, "method": request.method})
-        raise exc
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -49,6 +55,7 @@ def create_app() -> FastAPI:
     async def root_health() -> dict[str, str]:
         return {"status": "ok", "service": "careerpath-api"}
 
+    logger.info("create_app: add CORS middleware")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
@@ -57,8 +64,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    logger.info("create_app: include routers")
     app.include_router(health_router, prefix="/health")
     app.include_router(api_router, prefix="/api/v1")
+    logger.info("create_app: completed")
     return app
 
 

@@ -3,11 +3,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import get_session
+from app.core.settings import get_settings
 from app.repositories.profession_repository import ProfessionRepository
 from app.schemas.profession import ProfessionListItemResponse, ProfessionResponse, RelatedProfessionResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 def _safe_list(raw) -> list[str]:
@@ -33,6 +35,10 @@ def _fallback_who_suits(cluster: str) -> list[str]:
 async def list_professions(session=Depends(get_session)) -> list[ProfessionListItemResponse]:
     repo = ProfessionRepository(session)
     try:
+        if settings.professions_diag_ping:
+            logger.warning("PROFESSIONS_DIAG_PING enabled, returning diagnostic response")
+            return []
+
         logger.info("GET /professions started")
         professions = await repo.list_active()
         logger.info("GET /professions fetched records", extra={"records_count": len(professions)})
