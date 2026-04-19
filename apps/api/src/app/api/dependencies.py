@@ -1,33 +1,19 @@
-import logging
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.base import async_session
 from app.db.session import get_db_session
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 
-logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    logger.info("get_session start")
-    session: Optional[AsyncSession] = None
-    try:
-        async with async_session() as session:
-            logger.info("session created", extra={"session_id": id(session)})
-            logger.info("yield session", extra={"session_id": id(session)})
-            yield session
-    except Exception:
-        logger.exception("get_session failed")
-        raise
-    finally:
-        logger.info("session closed", extra={"session_id": id(session) if session is not None else None})
+async def get_session(session: AsyncSession = Depends(get_db_session)) -> AsyncSession:
+    return session
 
 
 async def get_current_user(
