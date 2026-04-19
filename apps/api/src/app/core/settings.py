@@ -1,11 +1,20 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="allow")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if isinstance(value, str) and value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        if isinstance(value, str) and value.startswith("postgresql://") and "+asyncpg" not in value:
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     project_name: str = Field(default="CareerPath API")
     environment: str = Field(default="local")

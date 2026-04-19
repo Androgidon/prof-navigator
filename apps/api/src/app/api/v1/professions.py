@@ -79,6 +79,18 @@ async def list_professions(session=Depends(get_session)) -> Union[list[Professio
         return JSONResponse(status_code=500, content={"detail": str(exc), "error_type": exc.__class__.__name__})
 
 
+@router.get("/pure-ping")
+async def pure_ping() -> dict[str, bool]:
+    logger.info("GET /professions/pure-ping entered")
+    return {"ok": True}
+
+
+@router.get("/dep-ping")
+async def dep_ping(session=Depends(get_session)) -> dict[str, bool]:
+    logger.info("GET /professions/dep-ping entered", extra={"session_type": type(session).__name__})
+    return {"ok": True}
+
+
 @router.get("/ping-db")
 async def ping_db(session=Depends(get_session)) -> dict[str, str]:
     logger.info("GET /professions/ping-db entered")
