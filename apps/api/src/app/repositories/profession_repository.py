@@ -34,14 +34,17 @@ class ProfessionRepository:
         return result.scalar_one_or_none()
 
     async def list_active(self) -> list[ProfessionCatalog]:
-        logger.info("ProfessionRepository.list_active query started")
-        result = await self._session.execute(
+        logger.info("ProfessionRepository.list_active entered")
+        query = (
             select(ProfessionCatalog)
             .where(ProfessionCatalog.status == "active")
             .order_by(ProfessionCatalog.title.asc())
         )
+        logger.info("ProfessionRepository.list_active before execute")
+        result = await self._session.execute(query)
+        logger.info("ProfessionRepository.list_active after execute")
         rows = list(result.scalars().all())
-        logger.info("ProfessionRepository.list_active query completed", extra={"rows_count": len(rows)})
+        logger.info("ProfessionRepository.list_active rows materialized", extra={"rows_count": len(rows)})
         return rows
 
     async def get_active_by_slug(self, slug: str) -> Optional[ProfessionCatalog]:

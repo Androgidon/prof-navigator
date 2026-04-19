@@ -1,4 +1,5 @@
-from typing import Optional
+import logging
+from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -9,11 +10,16 @@ from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 
+logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_session(session: AsyncSession = Depends(get_db_session)) -> AsyncSession:
-    return session
+async def get_session(session: AsyncSession = Depends(get_db_session)) -> AsyncGenerator[AsyncSession, None]:
+    logger.info("get_session: session received", extra={"session_id": id(session)})
+    try:
+        yield session
+    finally:
+        logger.info("get_session: session released", extra={"session_id": id(session)})
 
 
 async def get_current_user(

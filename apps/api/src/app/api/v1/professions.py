@@ -1,6 +1,9 @@
 import logging
+from typing import Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.api.dependencies import get_session
 from app.core.settings import get_settings
@@ -32,18 +35,22 @@ def _fallback_who_suits(cluster: str) -> list[str]:
 
 @router.get("", response_model=list[ProfessionListItemResponse])
 @router.get("/", response_model=list[ProfessionListItemResponse], include_in_schema=False)
-async def list_professions(session=Depends(get_session)) -> list[ProfessionListItemResponse]:
+async def list_professions(session=Depends(get_session)) -> Union[list[ProfessionListItemResponse], JSONResponse]:
     repo = ProfessionRepository(session)
     try:
+        logger.info("GET /professions endpoint entered")
+
         if settings.professions_diag_ping:
             logger.warning("PROFESSIONS_DIAG_PING enabled, returning diagnostic response")
             return []
 
-        logger.info("GET /professions started")
+        logger.info("GET /professions before repo.list_active")
         professions = await repo.list_active()
-        logger.info("GET /professions fetched records", extra={"records_count": len(professions)})
+        logger.info("GET /professions after repo.list_active")
+        logger.info("GET /professions result length", extra={"records_count": len(professions)})
 
         response_items: list[ProfessionListItemResponse] = []
+        logger.info("GET /professions serialization loop start")
         for profession in professions:
             try:
                 response_items.append(
@@ -64,11 +71,21 @@ async def list_professions(session=Depends(get_session)) -> list[ProfessionListI
                     },
                 )
 
+        logger.info("GET /professions serialization loop end")
         logger.info("GET /professions completed", extra={"response_count": len(response_items)})
         return response_items
-    except Exception:
-        logger.exception("Failed to load professions")
-        raise
+    except Exception as exc:
+        logger.exception("GET /professions failed")
+        return JSONResponse(status_code=500, content={"detail": str(exc), "error_type": exc.__class__.__name__})
+
+
+@router.get("/ping-db")
+async def ping_db(session=Depends(get_session)) -> dict[str, str]:
+    logger.info("GET /professions/ping-db entered")
+    result = await session.execute(text("SELECT 1"))
+    value = result.scalar_one()
+    logger.info("GET /professions/ping-db completed", extra={"result": value})
+    return {"status": "ok"}
 
 
 @router.get("/{slug}", response_model=ProfessionResponse)
