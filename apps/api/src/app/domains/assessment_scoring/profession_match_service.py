@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import Any, Dict, List, Optional, Set
 
 BONUS_CAP = 5.0
 ABSTRACT_CLUSTERS = {
@@ -25,12 +25,12 @@ CLUSTER_ADMISSIBILITY_RULES = {
 class ProfessionMatchService:
     def rank(
         self,
-        profile_scores: dict[str, int],
-        matrix_rows: list,
-        profession_by_id: dict,
+        profile_scores: Dict[str, int],
+        matrix_rows: List,
+        profession_by_id: Dict,
         target_count: int,
-        boundary_scores: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
+        boundary_scores: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         recommendations = []
         strengths = {name for name, _ in sorted(profile_scores.items(), key=lambda x: (-x[1], x[0]))[:3]}
 
@@ -106,7 +106,7 @@ class ProfessionMatchService:
         return top
 
     @staticmethod
-    def _base_similarity(profile_scores: dict[str, int], matrix: Any) -> float:
+    def _base_similarity(profile_scores: Dict[str, int], matrix: Any) -> float:
         weights = matrix.dimension_weights_json or {}
         targets = matrix.target_profile_json or {}
         total_weight = 0.0
@@ -123,7 +123,7 @@ class ProfessionMatchService:
         return weighted_score / total_weight
 
     @staticmethod
-    def _critical_penalty(profile_scores: dict[str, int], matrix: Any) -> float:
+    def _critical_penalty(profile_scores: Dict[str, int], matrix: Any) -> float:
         penalty = 0.0
         targets = matrix.target_profile_json or {}
         for dim in matrix.critical_dimensions or []:
@@ -135,7 +135,7 @@ class ProfessionMatchService:
         return penalty
 
     @staticmethod
-    def _small_bonus(strengths: set[str], matrix: Any) -> float:
+    def _small_bonus(strengths: Set[str], matrix: Any) -> float:
         if not strengths:
             return 0.0
         critical = set(matrix.critical_dimensions or [])
@@ -144,7 +144,7 @@ class ProfessionMatchService:
         return min(BONUS_CAP, bonus)
 
     @staticmethod
-    def _strong_fit_bonus(profile_scores: dict[str, int], matrix: Any) -> float:
+    def _strong_fit_bonus(profile_scores: Dict[str, int], matrix: Any) -> float:
         top_dims = [k for k, _ in sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))[:3]]
         critical = list(matrix.critical_dimensions or [])
         targets = matrix.target_profile_json or {}
@@ -161,7 +161,7 @@ class ProfessionMatchService:
         return 0.0
 
     @staticmethod
-    def _generic_fallback_penalty(profile_scores: dict[str, int], matrix: Any) -> float:
+    def _generic_fallback_penalty(profile_scores: Dict[str, int], matrix: Any) -> float:
         critical = list(matrix.critical_dimensions or [])
         if not critical:
             return 0.0
@@ -183,7 +183,7 @@ class ProfessionMatchService:
         return 0.0
 
     @staticmethod
-    def _boundary_alignment_adjustment(cluster: str, boundary_scores: dict[str, Any]) -> float:
+    def _boundary_alignment_adjustment(cluster: str, boundary_scores: Dict[str, Any]) -> float:
         if not boundary_scores:
             return 0.0
 
@@ -234,10 +234,10 @@ class ProfessionMatchService:
 
     @staticmethod
     def _science_fallback_penalty(
-        profile_scores: dict[str, int],
+        profile_scores: Dict[str, int],
         matrix: Any,
         cluster: str,
-        boundary_scores: dict[str, Any],
+        boundary_scores: Dict[str, Any],
     ) -> float:
         cluster_lower = cluster.lower()
         if "наука" not in cluster_lower:
@@ -270,7 +270,7 @@ class ProfessionMatchService:
         return penalty
 
     @staticmethod
-    def _cluster_calibration_adjustment(profile_scores: dict[str, int], cluster: str) -> float:
+    def _cluster_calibration_adjustment(profile_scores: Dict[str, int], cluster: str) -> float:
         ordered = sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))
         top_dims = {k for k, _ in ordered[:3]}
         practical = float(profile_scores.get("practical", 50))
@@ -327,7 +327,7 @@ class ProfessionMatchService:
         return adjustment
 
     @staticmethod
-    def _admissibility(profile_scores: dict[str, int], matrix: Any, cluster: str) -> dict[str, Any]:
+    def _admissibility(profile_scores: Dict[str, int], matrix: Any, cluster: str) -> Dict[str, Any]:
         top_dims = [k for k, _ in sorted(profile_scores.items(), key=lambda item: (-item[1], item[0]))[:3]]
         top_set = set(top_dims)
         critical = list(matrix.critical_dimensions or [])
@@ -357,7 +357,7 @@ class ProfessionMatchService:
         }
 
     @staticmethod
-    def _diversify_top_clusters(recommendations: list[dict[str, Any]], target_count: int) -> list[dict[str, Any]]:
+    def _diversify_top_clusters(recommendations: List[Dict[str, Any]], target_count: int) -> List[Dict[str, Any]]:
         if not recommendations:
             return recommendations
 
@@ -401,7 +401,7 @@ class ProfessionMatchService:
         return kept + overflow
 
     @staticmethod
-    def _boundary_lane_tiebreak(recommendations: list[dict[str, Any]], boundary_scores: dict[str, Any]) -> list[dict[str, Any]]:
+    def _boundary_lane_tiebreak(recommendations: List[Dict[str, Any]], boundary_scores: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not recommendations or not boundary_scores:
             return recommendations
 
@@ -443,7 +443,7 @@ class ProfessionMatchService:
 
 
     @staticmethod
-    def _prefer_applied_on_close_scores(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _prefer_applied_on_close_scores(recommendations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         adjusted = []
         for item in recommendations:
             score = float(item["_score"])

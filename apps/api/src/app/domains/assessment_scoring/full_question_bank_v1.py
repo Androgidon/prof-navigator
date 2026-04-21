@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import List, Literal, Optional, TypedDict
 
 
 QuestionType = Literal["likert_5", "single_select_4", "multi_select_2", "situational_single", "mini_task"]
@@ -12,8 +12,8 @@ class FullQuestionMeta(TypedDict):
     is_core: bool
     question_type: QuestionType
     primary_dimension: str
-    secondary_dimensions: list[str]
-    boundary: str | None
+    secondary_dimensions: List[str]
+    boundary: Optional[str]
 
 
 FULL_V1_BLOCK_WEIGHTS = {
@@ -46,7 +46,7 @@ BOUNDARY_IDS = {
 }
 
 # machine-readable draft v1 metadata for 72-question Full bank
-FULL_QUESTION_BANK_V1: list[FullQuestionMeta] = [
+FULL_QUESTION_BANK_V1: List[FullQuestionMeta] = [
     *[
         {
             "question_id": f"FT_INT_{i:02d}",

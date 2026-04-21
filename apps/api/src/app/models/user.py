@@ -13,6 +13,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     role: Mapped[str] = mapped_column(Text, default="student", nullable=False)
 
     profile = relationship("UserProfile", back_populates="user", uselist=False)

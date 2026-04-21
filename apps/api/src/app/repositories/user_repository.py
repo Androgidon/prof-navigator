@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,8 @@ class UserRepository:
         return list(result.scalars().all())
 
     async def find_by_email(self, email: str) -> Optional[User]:
-        result = await self._session.execute(select(User).where(User.email == email))
+        normalized = email.strip().lower()
+        result = await self._session.execute(select(User).where(func.lower(User.email) == normalized))
         return result.scalars().first()
 
     async def find_by_id(self, user_id: str) -> Optional[User]:

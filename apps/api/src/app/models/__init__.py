@@ -4,6 +4,7 @@ from app.models.assessment_result import AssessmentResult
 from app.models.assessment_session import AssessmentSession
 from app.models.audit_log import AdminAuditLog
 from app.models.base import Base
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.interest import Interest
 from app.models.profession_catalog import ProfessionCatalog
 from app.models.profession_matrix import ProfessionMatrix
@@ -29,6 +30,7 @@ __all__ = [
     "AssessmentSession",
     "AdminAuditLog",
     "Base",
+    "EmailVerificationCode",
     "Interest",
     "ProfessionCatalog",
     "ProfessionMatrix",

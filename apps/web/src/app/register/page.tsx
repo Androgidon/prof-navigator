@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { FocusedTaskLayout } from "@/components/layout/focused-task-layout";
 import { ProgressBar } from "@/components/layout/progress-bar";
-import { setAccountEmail } from "@/lib/auth-flow";
+import { setPendingVerificationEmail } from "@/lib/auth-flow";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -18,13 +18,37 @@ export default function RegisterPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setStatus("loading");
     setMessage(null);
-    
+
     const formData = new FormData(event.currentTarget);
+    const email = String(formData.get("email") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+    const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+    if (!password || !confirmPassword) {
+      setStatus("error");
+      setMessage("Заполните оба поля пароля");
+      return;
+    }
+
+    if (password.length < 8 || confirmPassword.length < 8) {
+      setStatus("error");
+      setMessage("Пароль должен быть не менее 8 символов");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setStatus("error");
+      setMessage("Пароли не совпадают");
+      return;
+    }
+
+    setStatus("loading");
+
     const payload = {
-      email: formData.get("email"),
-      password: formData.get("password"),
+      email,
+      password,
+      confirm_password: confirmPassword,
     };
 
     try {
@@ -36,22 +60,35 @@ export default function RegisterPage() {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.detail || "Не удалось зарегистрироваться");
+        const detail = String(errorData?.detail ?? "");
+        if (detail.includes("завершите подтверждение")) {
+          setPendingVerificationEmail(email);
+          router.push("/verify-email");
+          return;
+        }
+        throw new Error(detail || "Не удалось зарегистрироваться");
       }
       
       const data = await response.json();
-      
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("refresh_token", data.refresh_token);
-      setAccountEmail(String(payload.email ?? ""));
-      
+
+      if (data.status === "registered" && data.access_token && data.refresh_token) {
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+        setStatus("success");
+        setMessage("Регистрация прошла успешно. Перенаправление...");
+        setTimeout(() => {
+          router.push("/onboarding");
+        }, 700);
+        return;
+      }
+
+      setPendingVerificationEmail(String(data.email ?? payload.email ?? ""));
       setStatus("success");
-      setMessage("Регистрация прошла успешно. Перенаправление...");
-      
-      // Redirect to dashboard after short delay
+      setMessage("Код подтверждения отправлен на email. Перенаправление...");
+
       setTimeout(() => {
-        router.push("/onboarding");
-      }, 1000);
+        router.push("/verify-email");
+      }, 700);
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Ошибка");
@@ -98,6 +135,19 @@ export default function RegisterPage() {
                 required
                 className="form-input"
                 placeholder="Минимум 8 символов"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="confirmPassword" className="form-label">Повторите пароль</label>
+              <input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                minLength={8}
+                required
+                className="form-input"
+                placeholder="Повторите пароль"
               />
             </div>
 

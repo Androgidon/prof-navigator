@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.domains.assessment_scoring.full_question_bank_v1 import (
     BOUNDARY_IDS,
@@ -32,7 +32,7 @@ class FullScoringBlueprintV1:
         low, high = FULL_SIGNAL_BANDS[band]
         return (low + high) / 2.0
 
-    def _build_dimension_index(self) -> dict[str, list[dict[str, Any]]]:
+    def _build_dimension_index(self) -> Dict[str, List[Dict[str, Any]]]:
         index = {dim: [] for dim in DIMENSIONS}
         for meta in FULL_QUESTION_BANK_V1:
             pd = meta["primary_dimension"]
@@ -43,7 +43,7 @@ class FullScoringBlueprintV1:
                     index[sd].append({"question_id": meta["question_id"], "is_primary": False, "block": meta["block"], "is_core": meta["is_core"]})
         return index
 
-    def extract_signals(self, questions: list[Any], answers_json: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    def extract_signals(self, questions: List[Any], answers_json: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
         question_map = {q.question_id: q for q in questions}
         out: dict[str, list[dict[str, Any]]] = {dim: [] for dim in DIMENSIONS}
 
@@ -61,7 +61,7 @@ class FullScoringBlueprintV1:
 
         return out
 
-    def _extract_by_type(self, qtype: str, question: Any, answer: dict[str, Any], meta: Any) -> dict[str, dict[str, Any]]:
+    def _extract_by_type(self, qtype: str, question: Any, answer: Dict[str, Any], meta: Any) -> Dict[str, Dict[str, Any]]:
         primary = str(meta["primary_dimension"])
         secondary = [str(item) for item in meta["secondary_dimensions"]]
 
@@ -165,11 +165,11 @@ class FullScoringBlueprintV1:
 
     def compute_dimension_scores(
         self,
-        signals: dict[str, list[dict[str, Any]]],
-        block_weight_overrides: dict[str, float] | None = None,
-        adaptive_blend_override: float | None = None,
-        adaptive_delta_cap_override: float | None = None,
-    ) -> dict[str, Any]:
+        signals: Dict[str, List[Dict[str, Any]]],
+        block_weight_overrides: Optional[Dict[str, float]] = None,
+        adaptive_blend_override: Optional[float] = None,
+        adaptive_delta_cap_override: Optional[float] = None,
+    ) -> Dict[str, Any]:
         output: dict[str, Any] = {}
         macro_block_weights = block_weight_overrides or FULL_V1_BLOCK_WEIGHTS
         adaptive_blend = FULL_V1_ADAPTIVE_BLEND if adaptive_blend_override is None else float(adaptive_blend_override)
@@ -190,8 +190,8 @@ class FullScoringBlueprintV1:
 
             block_scores: dict[str, float] = {}
             block_weights: dict[str, float] = {}
-            core_values: list[tuple[float, float]] = []
-            adaptive_values: list[tuple[float, float]] = []
+            core_values: List[Tuple[float, float]] = []
+            adaptive_values: List[Tuple[float, float]] = []
 
             for item in evidence:
                 block = str(item.get("block") or "B1")
@@ -250,10 +250,10 @@ class FullScoringBlueprintV1:
 
     def compute_boundary_scores(
         self,
-        dimension_scores: dict[str, Any],
-        answers_json: dict[str, Any],
-        boundary_weight_overrides: dict[str, Any] | None = None,
-    ) -> dict[str, BoundaryScore]:
+        dimension_scores: Dict[str, Any],
+        answers_json: Dict[str, Any],
+        boundary_weight_overrides: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, BoundaryScore]:
         dim = {k: float(v.get("score", 50.0)) for k, v in dimension_scores.items()}
         overrides = boundary_weight_overrides or {}
 
@@ -329,10 +329,10 @@ class FullScoringBlueprintV1:
 
     def compute_full_confidence(
         self,
-        dimension_scores: dict[str, Any],
-        boundary_scores: dict[str, BoundaryScore],
-        recommendations: list[dict[str, Any]],
-    ) -> dict[str, Any]:
+        dimension_scores: Dict[str, Any],
+        boundary_scores: Dict[str, BoundaryScore],
+        recommendations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         evidence_count = sum(int(item.get("evidence_count", 0)) for item in dimension_scores.values())
         avg_evidence = evidence_count / float(len(DIMENSIONS)) if DIMENSIONS else 0.0
         coverage_score = min(1.0, avg_evidence / 6.0)
@@ -389,7 +389,7 @@ class FullScoringBlueprintV1:
             "fallback_penalty": round(fallback_penalty, 4),
         }
 
-    def validation_hooks(self, dimension_scores: dict[str, Any], boundary_scores: dict[str, BoundaryScore]) -> dict[str, Any]:
+    def validation_hooks(self, dimension_scores: Dict[str, Any], boundary_scores: Dict[str, BoundaryScore]) -> Dict[str, Any]:
         return {
             "dimension_coverage_ratio": round(
                 sum(1 for item in dimension_scores.values() if not item.get("used_fallback", False)) / float(len(DIMENSIONS)),

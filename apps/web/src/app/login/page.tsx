@@ -37,6 +37,9 @@ export default function LoginPage() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         const detail = String(errorData?.detail ?? "").toLowerCase();
+        if (response.status === 403 && detail.includes("подтвердите email")) {
+          throw new Error("Подтвердите email перед входом. Код можно отправить повторно на экране подтверждения.");
+        }
         if (response.status === 401 || detail.includes("invalid credentials")) {
           throw new Error("Пользователь с такими данными не зарегистрирован. Пожалуйста, пройдите регистрацию.");
         }

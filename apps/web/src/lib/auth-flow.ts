@@ -15,6 +15,7 @@ const PROFILE_STORAGE_KEY = "onboarding_profile";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const ACCOUNT_EMAIL_KEY = "auth_email";
+const PENDING_VERIFICATION_EMAIL_KEY = "pending_verification_email";
 const POST_LOGIN_REDIRECT_KEY = "post_login_redirect";
 
 function getProfileStorageKey(email?: string): string {
@@ -89,6 +90,27 @@ export function getAccountEmail(): string {
   return localStorage.getItem(ACCOUNT_EMAIL_KEY) ?? "";
 }
 
+export function setPendingVerificationEmail(email: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.setItem(PENDING_VERIFICATION_EMAIL_KEY, email.trim().toLowerCase());
+}
+
+export function getPendingVerificationEmail(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return localStorage.getItem(PENDING_VERIFICATION_EMAIL_KEY) ?? "";
+}
+
+export function clearPendingVerificationEmail(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.removeItem(PENDING_VERIFICATION_EMAIL_KEY);
+}
+
 export function clearAuthStorage(): void {
   if (typeof window === "undefined") {
     return;
@@ -97,6 +119,7 @@ export function clearAuthStorage(): void {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(ACCOUNT_EMAIL_KEY);
   localStorage.removeItem(PROFILE_STORAGE_KEY);
+  localStorage.removeItem(PENDING_VERIFICATION_EMAIL_KEY);
   window.dispatchEvent(new Event("careerpath:auth-changed"));
 }
 
