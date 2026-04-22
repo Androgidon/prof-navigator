@@ -183,7 +183,8 @@ async def hard_delete_user(
     await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
     await session.execute(delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id))
     await session.execute(delete(TestSession).where(TestSession.user_id == user.id))
-    await session.execute(delete(type(user)).where(type(user).id == user.id))
+
+    await session.delete(user)
     await session.commit()
 
     return {"status": "deleted", "user_id": user_id}
