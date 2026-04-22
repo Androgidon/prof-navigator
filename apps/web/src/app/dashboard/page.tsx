@@ -9,8 +9,10 @@ import { TabNav } from "@/components/layout/tab-nav";
 import { SearchFilterBar } from "@/components/layout/search-filter-bar";
 import { ResultsHistoryList } from "@/components/layout/results-history-list";
 import { ResultDetailView } from "@/components/layout/result-detail-view";
-import { getOnboardingProfile, type OnboardingProfile } from "@/lib/auth-flow";
+import { getAccountEmail, getOnboardingProfile, type OnboardingProfile } from "@/lib/auth-flow";
 import { authFetch, AuthExpiredError, trackTelemetryEvent } from "@/lib/api-client";
+
+const AI_SESSION_KEY = "ai_assessment_session_id";
 
 type TabId = "profile" | "results" | "favorites" | "settings";
 
@@ -117,9 +119,50 @@ export default function DashboardPage() {
   const [selectedResult, setSelectedResult] = useState<ResultDetail | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [selectedError, setSelectedError] = useState<string | null>(null);
+  const [hasAiSession, setHasAiSession] = useState(false);
 
   useEffect(() => {
-    setProfile(getOnboardingProfile());
+    const localProfile = getOnboardingProfile();
+    const accountEmail = getAccountEmail();
+    if (localProfile) {
+      setProfile({
+        ...localProfile,
+        email: localProfile.email || accountEmail,
+      });
+    } else {
+      setProfile(null);
+    }
+    if (typeof window !== "undefined") {
+      setHasAiSession(Boolean(localStorage.getItem(AI_SESSION_KEY)));
+    }
+
+    const loadBackendProfile = async () => {
+      try {
+        const res = await authFetch("/profile/me");
+        if (!res.ok) return;
+        const backend = await res.json();
+
+        const fullName = String(backend.full_name ?? "").trim();
+        const parts = fullName ? fullName.split(/\s+/) : [];
+        const mapped: OnboardingProfile = {
+          surname: parts[0] ?? localProfile?.surname ?? "",
+          name: parts[1] ?? localProfile?.name ?? "",
+          patronymic: parts.slice(2).join(" ") || localProfile?.patronymic || "",
+          age: backend.birth_date ? Number(backend.birth_date) || localProfile?.age || null : localProfile?.age || null,
+          gender: String(backend.gender ?? localProfile?.gender ?? "") as OnboardingProfile["gender"],
+          school: String(backend.school ?? backend.city ?? localProfile?.school ?? ""),
+          grade: Number(backend.grades?.class_grade ?? localProfile?.grade ?? 0) || null,
+          phone: String(backend.phone ?? localProfile?.phone ?? ""),
+          email: String(localProfile?.email || accountEmail || ""),
+          completedAt: localProfile?.completedAt || null,
+        };
+        setProfile(mapped);
+      } catch {
+        // fallback stays localStorage-based
+      }
+    };
+
+    void loadBackendProfile();
   }, []);
 
   useEffect(() => {
@@ -402,6 +445,16 @@ export default function DashboardPage() {
           <p className="dashboard-subtitle">
             Следите за прохождением теста, сохраненными профессиями и рекомендациями.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href="/ai-assessment" className="header-btn header-btn-primary">
+              Определить профессию с AI
+            </Link>
+            {hasAiSession && (
+              <Link href="/ai-assessment" className="header-btn header-btn-ghost">
+                Продолжить AI-диалог
+              </Link>
+            )}
+          </div>
         </div>
 
         <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
