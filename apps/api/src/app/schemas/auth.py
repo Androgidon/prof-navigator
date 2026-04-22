@@ -38,6 +38,21 @@ class ResendEmailCodeRequest(BaseModel):
     email: EmailStr
 
 
+class ChangeEmailStartRequest(BaseModel):
+    new_email: EmailStr
+
+
+class ChangeEmailConfirmRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+    @field_validator("code")
+    @classmethod
+    def only_digits(cls, value: str) -> str:
+        if not value.isdigit():
+            raise ValueError("Код должен состоять из цифр")
+        return value
+
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
@@ -45,3 +60,14 @@ class RefreshTokenRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
+
+
+class AuthMeResponse(BaseModel):
+    user_id: str
+    email: EmailStr
+
+
+class ChangeEmailResponse(BaseModel):
+    status: str
+    email: EmailStr
+    resend_available_in_seconds: int = 0

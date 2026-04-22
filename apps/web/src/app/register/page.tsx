@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { FocusedTaskLayout } from "@/components/layout/focused-task-layout";
 import { ProgressBar } from "@/components/layout/progress-bar";
-import { setPendingVerificationEmail } from "@/lib/auth-flow";
+import { setAccountEmail, setPendingVerificationEmail } from "@/lib/auth-flow";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -74,6 +74,7 @@ export default function RegisterPage() {
       if (data.status === "registered" && data.access_token && data.refresh_token) {
         localStorage.setItem("access_token", data.access_token);
         localStorage.setItem("refresh_token", data.refresh_token);
+        setAccountEmail(String(data.email ?? payload.email ?? ""));
         setStatus("success");
         setMessage("Регистрация прошла успешно. Перенаправление...");
         setTimeout(() => {

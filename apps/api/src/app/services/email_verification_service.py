@@ -67,7 +67,7 @@ class EmailVerificationService:
         source = f"{self._settings.code_secret}:{user_id}:{code}"
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
-    async def issue_code(self, user: User, force_resend: bool) -> datetime:
+    async def issue_code(self, user: User, force_resend: bool, target_email: str | None = None) -> datetime:
         now = self._now()
         latest = await self._repository.get_latest_active(user.id)
 
@@ -76,6 +76,7 @@ class EmailVerificationService:
 
         await self._repository.invalidate_active_codes(user.id, consumed_at=now)
 
+        email = (target_email or user.email).strip().lower()
         code = self._generate_code()
         code_hash = self._hash_code(user.id, code)
         expires_at = now + timedelta(minutes=self._settings.ttl_minutes)
@@ -83,7 +84,7 @@ class EmailVerificationService:
 
         await self._repository.create(
             user_id=user.id,
-            email=user.email,
+            email=email,
             code_hash=code_hash,
             expires_at=expires_at,
             resend_available_at=resend_available_at,
@@ -92,7 +93,7 @@ class EmailVerificationService:
 
         await self._sender.send(
             EmailMessage(
-                to_email=user.email,
+                to_email=email,
                 subject="Код подтверждения CareerPath",
                 body=f"Ваш код подтверждения: {code}. Код действует {self._settings.ttl_minutes} минут.",
             )
@@ -100,10 +101,13 @@ class EmailVerificationService:
 
         return resend_available_at
 
-    async def verify(self, user: User, code: str) -> None:
+    async def verify(self, user: User, code: str, expected_email: str | None = None) -> None:
         now = self._now()
         latest = await self._repository.get_latest_active(user.id)
         if latest is None:
+            raise CodeInvalidError("Код подтверждения не найден")
+
+        if expected_email and latest.email.strip().lower() != expected_email.strip().lower():
             raise CodeInvalidError("Код подтверждения не найден")
 
         expires_at = latest.expires_at if latest.expires_at.tzinfo else latest.expires_at.replace(tzinfo=timezone.utc)

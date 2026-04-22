@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { authFetch } from "@/lib/api-client";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -11,12 +12,13 @@ import {
   getOnboardingProfile,
   isProfileComplete,
   saveOnboardingProfile,
+  setAccountEmail,
   type OnboardingProfile,
 } from "@/lib/auth-flow";
 
 type FieldErrors = Partial<
   Record<
-    "surname" | "name" | "age" | "gender" | "school" | "grade" | "phone" | "email",
+    "surname" | "name" | "age" | "gender" | "school" | "grade" | "phone",
     string
   >
 >;
@@ -65,7 +67,6 @@ const validateProfile = (profile: OnboardingProfile): FieldErrors => {
   if (!profile.surname.trim()) errors.surname = REQUIRED_MESSAGE;
   if (!profile.name.trim()) errors.name = REQUIRED_MESSAGE;
   if (!profile.school.trim()) errors.school = REQUIRED_MESSAGE;
-  if (!profile.email.trim()) errors.email = REQUIRED_MESSAGE;
 
   if (profile.age === null || profile.age <= 0) {
     errors.age = "Введите корректный возраст";
@@ -103,6 +104,7 @@ export default function OnboardingPage() {
   })();
 
   const [profile, setProfile] = useState<OnboardingProfile>(initialProfile);
+  const [accountEmail, setAccountEmailState] = useState<string>(getAccountEmail());
   const [isSaved, setIsSaved] = useState<boolean>(
     Boolean(initialProfile.completedAt) && isProfileComplete(initialProfile)
   );
@@ -111,15 +113,65 @@ export default function OnboardingPage() {
   );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
+  useEffect(() => {
+    const syncAccountEmail = () => {
+      const nextEmail = getAccountEmail();
+      setAccountEmailState(nextEmail);
+      setProfile((prev) => ({
+        ...prev,
+        email: nextEmail || prev.email,
+      }));
+    };
+
+    const hydrateAccountEmailFromApi = async () => {
+      if (typeof window === "undefined") return;
+      if (getAccountEmail()) return;
+
+      const token = localStorage.getItem("access_token");
+      if (!token) return;
+
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+      try {
+        const response = await fetch(`${apiBase}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { email?: string };
+        if (payload.email) {
+          setAccountEmail(payload.email);
+        }
+      } catch {
+        // no-op
+      }
+    };
+
+    syncAccountEmail();
+    void hydrateAccountEmailFromApi();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("careerpath:auth-changed", syncAccountEmail);
+      return () => {
+        window.removeEventListener("careerpath:auth-changed", syncAccountEmail);
+      };
+    }
+
+    return undefined;
+  }, []);
+
   const setField = <K extends keyof OnboardingProfile>(key: K, value: OnboardingProfile[K]) => {
     setProfile((prev) => ({ ...prev, [key]: value }));
     setIsSaved(false);
     setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
   };
 
-  const handleSave = (event: FormEvent<HTMLFormElement>) => {
+  const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const errors = validateProfile(profile);
+    const profileWithAccountEmail: OnboardingProfile = {
+      ...profile,
+      email: accountEmail || profile.email,
+    };
+
+    const errors = validateProfile(profileWithAccountEmail);
     setFieldErrors(errors);
 
     if (Object.values(errors).some(Boolean)) {
@@ -127,8 +179,39 @@ export default function OnboardingPage() {
       return;
     }
 
-    const completedProfile = { ...profile, completedAt: new Date().toISOString() };
+    const completedProfile = { ...profileWithAccountEmail, completedAt: new Date().toISOString() };
     saveOnboardingProfile(completedProfile);
+
+    // Best-effort backend sync (keep localStorage as compatibility fallback)
+    const fullName = [completedProfile.surname, completedProfile.name, completedProfile.patronymic]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    const backendPayload = {
+      full_name: fullName || null,
+      birth_date: completedProfile.age ? String(completedProfile.age) : null,
+      country: null,
+      region: null,
+      city: completedProfile.school || null,
+      school: completedProfile.school || null,
+      phone: completedProfile.phone || null,
+      gender: completedProfile.gender || null,
+      language: null,
+      grades: completedProfile.grade ? { class_grade: completedProfile.grade } : null,
+      interests: null,
+    };
+
+    try {
+      await authFetch("/profile/me", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backendPayload),
+      });
+    } catch {
+      // non-blocking: local profile remains source for compatibility
+    }
+
     setProfile(completedProfile);
     setIsSaved(isProfileComplete(completedProfile));
     setIsEditing(false);
@@ -306,17 +389,19 @@ export default function OnboardingPage() {
                   </div>
 
                   <div className="form-group" style={{ marginTop: 0 }}>
-                    <label htmlFor="email" className="form-label">Email *</label>
+                    <label htmlFor="email" className="form-label">Email аккаунта</label>
                     <input
                       id="email"
                       name="email"
                       type="email"
-                      required
                       readOnly
-                      className={`form-input ${fieldErrors.email ? "border-destructive" : ""}`}
-                      value={profile.email}
+                      disabled
+                      className="form-input"
+                      value={accountEmail || profile.email || ""}
                     />
-                    {fieldErrors.email && <p className="text-xs text-destructive">{fieldErrors.email}</p>}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Изменение email доступно только в настройках профиля через подтверждение.
+                    </p>
                   </div>
                 </div>
               </div>

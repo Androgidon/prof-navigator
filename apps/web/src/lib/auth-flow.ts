@@ -81,6 +81,7 @@ export function setAccountEmail(email: string): void {
   }
   const normalizedEmail = email.trim().toLowerCase();
   localStorage.setItem(ACCOUNT_EMAIL_KEY, normalizedEmail);
+  window.dispatchEvent(new Event("careerpath:auth-changed"));
 }
 
 export function getAccountEmail(): string {
@@ -155,6 +156,9 @@ export function isProfileComplete(profile: OnboardingProfile | null): boolean {
   }
   const validAge = typeof profile.age === "number" && profile.age > 0;
   const validGrade = typeof profile.grade === "number" && profile.grade > 0;
+  const accountEmail = getAccountEmail();
+  const effectiveEmail = accountEmail || profile.email;
+
   return Boolean(
     profile.surname?.trim() &&
       profile.name?.trim() &&
@@ -163,7 +167,7 @@ export function isProfileComplete(profile: OnboardingProfile | null): boolean {
       profile.school?.trim() &&
       validGrade &&
       profile.phone?.trim() &&
-      profile.email?.trim()
+      effectiveEmail?.trim()
   );
 }
 

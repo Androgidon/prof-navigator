@@ -7,9 +7,6 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { authFetch, AuthExpiredError } from "@/lib/api-client";
 
-const appEnv = (process.env.NEXT_PUBLIC_APP_ENV ?? process.env.NODE_ENV ?? "").toLowerCase();
-const canUseDevReset = ["local", "dev", "development"].includes(appEnv);
-
 type UserDetailPayload = {
   account: {
     id: string;
@@ -83,35 +80,25 @@ export default function AdminUserDetailPage() {
 
   const changeStatus = async (action: "activate" | "deactivate" | "delete") => {
     const isDelete = action === "delete";
-    if (isDelete && !window.confirm("Подтвердите полное удаление пользователя для dev-тестирования")) {
+    if (isDelete && !window.confirm("Подтвердите удаление пользователя")) {
       return;
     }
 
     if (isDelete) {
-      if (!canUseDevReset) {
-        alert("Полное удаление доступно только в local/dev среде");
-        return;
-      }
-      if (!data?.account.email) {
-        alert("Не найден email пользователя для удаления");
-        return;
-      }
-
-      const resetRes = await authFetch("/dev/reset-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: data.account.email }),
+      const deleteRes = await authFetch(`/admin/users/${userId}`, {
+        method: "DELETE",
       });
-      if (resetRes.status === 403) {
+      if (deleteRes.status === 403) {
         router.replace("/dashboard");
         return;
       }
-      if (!resetRes.ok) {
-        alert("Не удалось выполнить полное удаление пользователя");
+      if (!deleteRes.ok) {
+        const payload = await deleteRes.json().catch(() => null);
+        alert(String(payload?.detail ?? "Не удалось удалить пользователя"));
         return;
       }
 
-      alert("Пользователь полностью удалён");
+      alert("Пользователь удалён");
       router.push("/admin/users");
       return;
     }

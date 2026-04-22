@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ProfileBase(BaseModel):
@@ -11,6 +12,9 @@ class ProfileBase(BaseModel):
     country: Optional[str] = None
     region: Optional[str] = None
     city: Optional[str] = None
+    school: Optional[str] = None
+    phone: Optional[str] = None
+    gender: Optional[str] = None
     language: Optional[str] = None
     grades: Optional[Dict[str, int]] = None
     interests: Optional[List[str]] = None
@@ -25,7 +29,6 @@ class ProfileUpdate(ProfileBase):
 
 
 class ProfileResponse(ProfileBase):
-    user_id: str
+    user_id: uuid.UUID
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

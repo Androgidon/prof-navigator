@@ -244,7 +244,14 @@ export default function ResultsPageClient() {
                 {express.top_strengths.slice(0, 4).map((item, idx) => (
                   <ExplanationItem key={`${item.dimension}-${idx}`} title={toReadableDimensionLabel(item.dimension)} description={item.explanation} score={item.score} />
                 ))}
-                <ExplanationItem title="Уверенность результата" description={express.confidence.user_message} score={Math.round(express.confidence.score)} />
+                  <ExplanationItem title="Уверенность результата" description={express.confidence.user_message} score={Math.round(express.confidence.score)} />
+                  {express.assessment_slug === "ai_chat_v1" && express.confidence.level === "low" && (
+                    <ExplanationItem
+                      title="Уточнение результата"
+                      description="Это предварительный результат AI-диалога. Для повышения точности продолжите диалог и добавьте больше ответов."
+                    />
+                  )}
+
               </ExplanationPanel>
 
               <h2 className="dashboard-section-heading">Топ направлений</h2>
@@ -298,7 +305,14 @@ export default function ResultsPageClient() {
                     score={item.score}
                   />
                 ))}
-                <ExplanationItem title="Уверенность результата" description={`Уровень: ${full.overall_confidence.level}.`} score={Math.round(full.overall_confidence.score)} />
+                  <ExplanationItem title="Уверенность результата" description={`Уровень: ${full.overall_confidence.level}.`} score={Math.round(full.overall_confidence.score)} />
+                  {full.assessment_slug === "ai_chat_v1" && full.overall_confidence.level === "low" && (
+                    <ExplanationItem
+                      title="Уточнение результата"
+                      description="Это best-effort результат AI-диалога. Рекомендуем пройти дополнительные вопросы для более уверенной рекомендации."
+                    />
+                  )}
+
               </ExplanationPanel>
 
               <h2 className="dashboard-section-heading">Top-8 профессий</h2>
@@ -344,6 +358,12 @@ export default function ResultsPageClient() {
                     />
                   ))}
                   <ExplanationItem title="Уверенность результата" description={`Оценка confidence: ${confidenceScore || "н/д"}.`} score={confidenceScore || undefined} />
+                  {legacy.assessment_slug === "ai_chat_v1" && (
+                    <ExplanationItem
+                      title="Уточнение результата"
+                      description="AI-диалог выдал предварительный best-effort результат. Продолжение диалога повышает точность подбора."
+                    />
+                  )}
                 </ExplanationPanel>
               )}
 

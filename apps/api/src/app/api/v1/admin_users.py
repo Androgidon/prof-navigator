@@ -1,12 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import require_admin_user
 from app.db.session import get_db_session
+from app.models.assessment_result import AssessmentResult
+from app.models.assessment_session import AssessmentSession
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.recommendation import Recommendation
+from app.models.refresh_token import RefreshToken
+from app.models.subject_grade import SubjectGrade
+from app.models.test_response import TestResponse
+from app.models.test_session import TestSession
 from app.models.user_favorite import UserFavorite
+from app.models.profile import UserProfile
 from app.repositories.user_repository import UserRepository
 
 router = APIRouter(dependencies=[Depends(require_admin_user)])
@@ -124,15 +132,58 @@ async def activate_user(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_200_OK)
-async def soft_delete_user(
+async def hard_delete_user(
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
+    current_admin=Depends(require_admin_user),
 ) -> dict:
     repo = UserRepository(session)
     user = await repo.find_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    await repo.set_active(user, False)
+    if str(current_admin.id) == str(user.id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя удалить текущего админа")
+
+    profile_id_result = await session.execute(select(UserProfile.id).where(UserProfile.user_id == user.id))
+    profile_id = profile_id_result.scalar_one_or_none()
+
+    # test sessions + responses
+    test_sessions_result = await session.execute(select(TestSession.id).where(TestSession.user_id == user.id))
+    test_session_ids = [row[0] for row in test_sessions_result.all()]
+    if test_session_ids:
+        await session.execute(delete(TestResponse).where(TestResponse.session_id.in_(test_session_ids)))
+        await session.execute(delete(TestSession).where(TestSession.id.in_(test_session_ids)))
+
+    # recommendations + subject grades linked via user profile
+    if profile_id:
+        await session.execute(delete(Recommendation).where(Recommendation.user_profile_id == profile_id))
+        await session.execute(delete(SubjectGrade).where(SubjectGrade.profile_id == profile_id))
+
+    # favorites, refresh tokens, verification codes
+    await session.execute(delete(UserFavorite).where(UserFavorite.user_id == user.id))
+    await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+    await session.execute(delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id))
+
+    # assessment chain
+    assessment_session_ids_result = await session.execute(
+        select(AssessmentSession.id).where(AssessmentSession.user_id == user.id)
+    )
+    assessment_session_ids = [row[0] for row in assessment_session_ids_result.all()]
+    if assessment_session_ids:
+        await session.execute(delete(AssessmentResult).where(AssessmentResult.session_id.in_(assessment_session_ids)))
+        await session.execute(delete(AssessmentSession).where(AssessmentSession.id.in_(assessment_session_ids)))
+
+    if profile_id:
+        await session.execute(delete(UserProfile).where(UserProfile.id == profile_id))
+
+    await session.execute(delete(AssessmentSession).where(AssessmentSession.user_id == user.id))
+    await session.execute(delete(UserProfile).where(UserProfile.user_id == user.id))
+    await session.execute(delete(UserFavorite).where(UserFavorite.user_id == user.id))
+    await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+    await session.execute(delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id))
+    await session.execute(delete(TestSession).where(TestSession.user_id == user.id))
+    await session.execute(delete(type(user)).where(type(user).id == user.id))
     await session.commit()
-    return {"status": "soft_deleted", "user": _serialize_user(user)}
+
+    return {"status": "deleted", "user_id": user_id}

@@ -9,7 +9,7 @@ import { TabNav } from "@/components/layout/tab-nav";
 import { SearchFilterBar } from "@/components/layout/search-filter-bar";
 import { ResultsHistoryList } from "@/components/layout/results-history-list";
 import { ResultDetailView } from "@/components/layout/result-detail-view";
-import { getAccountEmail, getOnboardingProfile, type OnboardingProfile } from "@/lib/auth-flow";
+import { getAccountEmail, getOnboardingProfile, setAccountEmail, type OnboardingProfile } from "@/lib/auth-flow";
 import { authFetch, AuthExpiredError, trackTelemetryEvent } from "@/lib/api-client";
 
 const AI_SESSION_KEY = "ai_assessment_session_id";
@@ -120,14 +120,16 @@ export default function DashboardPage() {
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [selectedError, setSelectedError] = useState<string | null>(null);
   const [hasAiSession, setHasAiSession] = useState(false);
+  const [accountEmail, setAccountEmailState] = useState<string>("");
 
   useEffect(() => {
     const localProfile = getOnboardingProfile();
-    const accountEmail = getAccountEmail();
+    const currentAccountEmail = getAccountEmail();
+    setAccountEmailState(currentAccountEmail);
     if (localProfile) {
       setProfile({
         ...localProfile,
-        email: localProfile.email || accountEmail,
+        email: currentAccountEmail || localProfile.email,
       });
     } else {
       setProfile(null);
@@ -153,7 +155,7 @@ export default function DashboardPage() {
           school: String(backend.school ?? backend.city ?? localProfile?.school ?? ""),
           grade: Number(backend.grades?.class_grade ?? localProfile?.grade ?? 0) || null,
           phone: String(backend.phone ?? localProfile?.phone ?? ""),
-          email: String(localProfile?.email || accountEmail || ""),
+          email: String(getAccountEmail() || localProfile?.email || ""),
           completedAt: localProfile?.completedAt || null,
         };
         setProfile(mapped);
@@ -163,6 +165,51 @@ export default function DashboardPage() {
     };
 
     void loadBackendProfile();
+
+    const syncAccountEmail = () => {
+      const nextEmail = getAccountEmail();
+      setAccountEmailState(nextEmail);
+      setProfile((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          email: nextEmail || prev.email,
+        };
+      });
+    };
+
+    const hydrateAccountEmailFromApi = async () => {
+      if (typeof window === "undefined") return;
+      if (getAccountEmail()) return;
+
+      const token = localStorage.getItem("access_token");
+      if (!token) return;
+
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+      try {
+        const response = await fetch(`${apiBase}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { email?: string };
+        if (payload.email) {
+          setAccountEmail(payload.email);
+        }
+      } catch {
+        // no-op
+      }
+    };
+
+    void hydrateAccountEmailFromApi();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("careerpath:auth-changed", syncAccountEmail);
+      return () => {
+        window.removeEventListener("careerpath:auth-changed", syncAccountEmail);
+      };
+    }
+
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -326,10 +373,18 @@ export default function DashboardPage() {
                     <p><strong>Школа:</strong> {profile.school || "—"}</p>
                     <p><strong>Класс:</strong> {profile.grade ?? "—"}</p>
                     <p><strong>Контактный номер телефона:</strong> {profile.phone || "—"}</p>
-                    <p className="md:col-span-2"><strong>Email:</strong> {profile.email || "—"}</p>
+                    <p className="md:col-span-2"><strong>Email:</strong> {accountEmail || profile.email || "—"}</p>
                   </div>
                 ) : (
-                  <p className="settings-placeholder">Профиль ещё не заполнен. Нажмите «Редактировать», чтобы добавить данные.</p>
+                  <div className="text-sm space-y-2">
+                    <p className="settings-placeholder">Профиль ещё не заполнен. Нажмите «Редактировать», чтобы добавить данные.</p>
+                    <p><strong>Email:</strong> {accountEmail || "—"}</p>
+                    <p>
+                      <Link href="/settings/email" className="text-primary hover:underline">
+                        Изменить email
+                      </Link>
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -421,10 +476,14 @@ export default function DashboardPage() {
           <div className="dashboard-tab-content">
             <div className="settings-section">
               <h2 className="dashboard-section-heading">Настройки аккаунта</h2>
-              <div className="settings-card">
+              <div className="settings-card text-sm space-y-3">
+                <p><strong>Текущий email:</strong> {accountEmail || profile?.email || "—"}</p>
                 <p className="settings-placeholder">
-                  Настройки аккаунта будут доступны после регистрации.
+                  Изменение email выполняется через отдельный verification flow.
                 </p>
+                <Link href="/settings/email" className="header-btn header-btn-ghost inline-flex">
+                  Изменить email
+                </Link>
               </div>
             </div>
           </div>
