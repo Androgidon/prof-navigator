@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,6 +18,11 @@ from app.models.profile import UserProfile
 from app.repositories.user_repository import UserRepository
 
 router = APIRouter(dependencies=[Depends(require_admin_user)])
+
+
+async def _table_exists(session: AsyncSession, table_name: str) -> bool:
+    result = await session.execute(text("SELECT to_regclass(:table_name)"), {"table_name": table_name})
+    return result.scalar_one_or_none() is not None
 
 
 def _serialize_user(user) -> dict:
@@ -164,6 +169,32 @@ async def hard_delete_user(
     await session.execute(delete(UserFavorite).where(UserFavorite.user_id == user.id))
     await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
     await session.execute(delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id))
+
+    # AI chain (prod-safe: tables may not exist yet)
+    has_conversation_sessions = await _table_exists(session, "conversation_sessions")
+    has_conversation_messages = await _table_exists(session, "conversation_messages")
+    has_ai_llm_runs = await _table_exists(session, "ai_llm_runs")
+    if has_conversation_sessions:
+        conversation_ids_result = await session.execute(
+            text("SELECT id FROM conversation_sessions WHERE user_id = :user_id"),
+            {"user_id": str(user.id)},
+        )
+        conversation_ids = [row[0] for row in conversation_ids_result.all()]
+        if conversation_ids:
+            if has_ai_llm_runs:
+                await session.execute(
+                    text("DELETE FROM ai_llm_runs WHERE conversation_session_id = ANY(:conversation_ids)"),
+                    {"conversation_ids": conversation_ids},
+                )
+            if has_conversation_messages:
+                await session.execute(
+                    text("DELETE FROM conversation_messages WHERE session_id = ANY(:conversation_ids)"),
+                    {"conversation_ids": conversation_ids},
+                )
+            await session.execute(
+                text("DELETE FROM conversation_sessions WHERE id = ANY(:conversation_ids)"),
+                {"conversation_ids": conversation_ids},
+            )
 
     # assessment chain
     assessment_session_ids_result = await session.execute(
