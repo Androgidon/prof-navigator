@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from typing import Any, Dict, Optional
 
@@ -48,7 +48,7 @@ class AuthService:
         exp = payload.get("exp")
         if exp is None:
             return None
-        return datetime.utcfromtimestamp(exp)
+        return datetime.fromtimestamp(exp, tz=timezone.utc)
 
     @staticmethod
     def create_access_token(subject: str) -> str:

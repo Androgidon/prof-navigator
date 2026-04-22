@@ -253,12 +253,12 @@ async def refresh_token(payload: RefreshTokenRequest, session: AsyncSession = De
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     access_token = AuthService.create_access_token(user_id)
-    refresh_id = stored.token_id
-    refresh_token_value = AuthService.create_refresh_token(user_id, str(refresh_id))
+    next_refresh_id = uuid.uuid4()
+    refresh_token_value = AuthService.create_refresh_token(user_id, str(next_refresh_id))
     stored.revoked = True
     await token_repo.create(
         user_id=user_id,
-        token_id=uuid.uuid4(),
+        token_id=next_refresh_id,
         token_hash=AuthService.hash_token(refresh_token_value),
         expires_at=_now() + timedelta(days=settings.refresh_token_expire_days),
     )
